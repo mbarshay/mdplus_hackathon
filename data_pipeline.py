@@ -1,5 +1,4 @@
 from datetime import datetime
-
 import pandas as pd
 import csv
 import sys
@@ -89,8 +88,11 @@ def look_up_admission_by_hadm(hadm_id, admission_df):
 	relevant_hadm_row = admission_df[admission_df['hadm_id'] == hadm_id]
 	return relevant_hadm_row
 
+print("Start time is: ", datetime.now())
+
 master_dict = {}
 for index, row in df_ed_stays.iterrows():
+	
 	current_pt = row['subject_id']
 	current_pt_ed_gender = row['gender']
 	current_pt_ed_race = row['race']
@@ -102,6 +104,8 @@ for index, row in df_ed_stays.iterrows():
 	current_pt_adm_marital_status = ''
 	current_pt_adm_race = ''
 
+	if index % 300 == 0:
+		print(current_pt)
 
 	if not pd.isna(current_pt_ed_hadm_id):
 		current_pt_ed_hadm_id = int(current_pt_ed_hadm_id)
@@ -157,7 +161,6 @@ for index, row in df_ed_stays.iterrows():
 		num_subseq_icu_admissions = 0
 		
 		while (next_row['subject_id'] == current_pt):
-			print(next_row['subject_id'])
 			next_visit_date = datetime.strptime(next_row['intime'], mimic_date_format)
 			time_delta = next_visit_date - current_visit_date
 			if (time_delta.days <= num_days_revisit_window):
@@ -194,8 +197,9 @@ for index, row in df_ed_stays.iterrows():
 			'num_total_visits' : num_total_visits,
 			'num_subseq_icu_admissions' : num_subseq_icu_admissions, 
 		}
-	if index > 10000:
-		break
+
+print("End time is: ", datetime.now())
+
 
 output_filename = "output.csv"
 output_path = os.path.join(base_ed_dir, output_filename)
