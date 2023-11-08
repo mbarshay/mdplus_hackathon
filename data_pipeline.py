@@ -74,6 +74,13 @@ hosp_admissions_path = os.path.join(base_hosp_dir, hosp_admissions_filename)
 hosp_drgcodes_filename = "drgcodes.csv"
 hosp_drgcodes_path = os.path.join(base_hosp_dir, hosp_drgcodes_filename)
 
+hosp_dx_filename = "diagnoses_icd.csv"
+hosp_dx_path = os.path.join(base_hosp_dir, hosp_dx_filename)
+
+hosp_dx_desc_filename = "d_icd_diagnoses.csv"
+hosp_dx_desc_path = os.path.join(base_hosp_dir, hosp_dx_desc_filename)
+
+
 # Generate Pandas Dataframes
 ed_df_dx = pd.read_csv(ed_dx_path)
 ## for further performance considerations, may be worth merging the dataframes up-front and reducing data volume (in terms of cols)
@@ -284,6 +291,9 @@ for index, row in df_ed_stays.iterrows():
 							los_hours = (dischtime - admittime).total_seconds() / 3600
 							total_subseq_hours_inpt_post_blood_thinner += los_hours
 							drgs = pd.concat([drgs, hosp_drgcodes[hosp_drgcodes['hadm_id'] == next_row['hadm_id']]])
+					else:
+						print("AH THERE WAS NO ADMISSION!")
+						sys.exit(0)
 			next_index += 1 
 			next_row = df_ed_stays.loc[next_index]	
 
