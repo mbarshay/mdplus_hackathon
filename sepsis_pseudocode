@@ -1,0 +1,96 @@
+### THIS IS COMPLETELY PSEUDOCODE!!
+
+sepsis_drgs = [720, 870, 871, 872]
+sepsis_icdCodes = ["A021","A207","A227","A267","A327","A391","A392","A393","A394","A3989","A399","A400","A401","A403","A408","A409","A4101","A4102","A411","A412","A413","A414","A4150","A4151","A4152","A4153","A4159","A4181","A4189","A419","A427","A5486","B007","B377","R571","R578","R6510","R6511","R6520","R6521","R7881"]
+sepsis_clinicalDefinition = sepsis_infection_critera + sepsis_dysfunction_criteria
+
+### we may want to just use the hospital for patients, not just the ED file! 
+def sepsis_infection_criteria(howeverYouTrackThePatient, pandas_hosp_Events):
+    # if any of the icd_codes begins with an A or a B, it is a known infection. 
+    infection_icd_codes = ['A', 'B']
+    if pandas_hosp_Events['icd_codes'][:2] == infection_icd_codes:
+        microbiologyevents, d_micro
+        howeverYouTrackThePatient['knowninfection'] == 1 
+    else:
+        howeverYouTrackThePatient['knowninfeciton'] == 0
+    return(pandasED_with_icd_codes)
+
+def sepsis_dysfunction_criteria(howeverYouTrackThePatient, pandasED_with_vital_signs, pandas_Hosp_labevents,pandas_icd_codes):
+    ### we need to discuss how inclusive we want to be, but I am going to err on the side of including every case...which is the reality of clinical differences
+    ## I did not include whether these values might be entered wrong. Are there a lot of error values? 
+    
+    ### Cardiovascular dysfunction is based on HR, SBP, and DBP
+    if pandasED_with_vital_signs['heart rate'] < 60 & > 100:
+        howeverYouTrackThePatient['dysfunction'] ='heartDysfunction'
+    elif pandasED_with_vital_signs['sbp'] < 100 or > 140:
+        howeverYouTrackThePatient['dysfunction'] ='heartDysfunction'
+    elif pandasED_with_vital_signs['dbp'] < 60 or > 100:
+        howeverYouTrackThePatient['dysfunction']='heartDysfunction'
+    
+    ### Respiratory dysfunction is based on Respiratory rate and O2Sat
+    elif pandasED_with_vital_signs['resprate'] < 12 or >20: 
+        howeverYouTrackThePatient['dysfunction'] = 'respDysfunction'
+    elif pandasED_with_vital_signs['o2sat'] < 90:
+        howeverYouTrackThePatient['dysfunction'] = 'respDysfunction'
+
+    
+    #normalLiverStuff = AST, <35, ALT, <35, GGTP, 1 to 94, Alkaline phsophatase 30 to 120, total bilirubin .3 to 1.0, total protein from 6 to 8.3, albumin 3.5 to 5.5
+    elif pandas_Hosp_labevents['AST'] > 35:
+        howeverYouTrackThePatient['dysfunction'] = 'liverDysfunction'
+    elif pandas_Hosp_labevents['ALT'] > 35 
+        howeverYouTrackThePatient['dysfunction'] = 'liverDysfunction'
+    elif pandas_Hosp_labevents['GGTP'] < 1 or > 94:
+        howeverYouTrackThePatient['dysfunction'] = 'liverDysfunction'
+    if pandas_Hosp_labevents['Alkaline phosphatase'] <30 or >120:
+        howeverYouTrackThePatient['dysfunction'] = 'liverDysfunction'
+    elif pandas_Hosp_labevents['Total Bilirubin '] < .3 or > 1.0
+        howeverYouTrackThePatient['dysfunction'] = 'liverDysfunction'
+    elif pandas_Hosp_labevents['Total Protein'] < 6 or > 8.3:
+        howeverYouTrackThePatient['dysfunction'] = 'liverDysfunction'
+    elif pandas_Hosp_labevents['albumin'] <3.5 or > 5.5:
+        howeverYouTrackThePatient['dysfunction'] = 'liverDysfunction'
+    elif pandas_Hosp_labevents['A/g ratio'] < 1:
+        howeverYouTrackThePatient['dysfunction'] = 'liverDysfunction'
+    elif pandas_Hosp_labevents['inr'] <.9 or > 1.1:
+        howeverYouTrackThePatient['dysfunction'] = 'liverDysfunction'
+
+    ## REnal function is defined by GFR 
+    elif pandas_Hosp_labevents['GFR'] < 90:
+        howeverYouTrackThePatient['dysfunction'] = 'renalDysfunction'
+    
+    ## Encephalopathy is defined by icd code of altered metnal status (AMS)
+    elif pandas_icd_codes['icd_codes'][:3] == 'R4':
+        howeverYouTrackThePatient['dysfunction'] = 'brainDysfunction'
+
+    ## everyone else is non-pathologic dysfunction; 
+    ###This is not completely true, but for MDplus I can argue for this 
+    else:
+        howeverYouTrackThePatient['dysfunction'] = 'None'
+
+sepsis_clinicalDefinition = True if  sepsis_infection_criteria != 0 and sepsis_dysfunction_criteria != 'None'
+
+
+################################
+################################
+################################
+################################
+## Hemorrhagic Shock Criteria ##
+################################
+################################
+################################
+
+
+## we might run into one problem here? 
+def received_blood_in_1_day(howeverYouTrackThePatient, pandas_hosp_Events):
+    if pandas_hosp_Event[icd_procedures] = [3023, 3024, 3027] and pandas_hosp_Events[time_event] < 1 day pandas_hosp_Events[admission]:
+        howeverYouTrackThePatient['received blood w/i first day'] = 1
+    else: howeverYouTrackThePatient['received blood w/i first day'] = 0
+    return howeverYouTrackThePatient
+
+def hemorrhagic_shock_class(howeverYouTrackThePatient, pandas_hosp_Events, vitals):
+    if howeverYouTrackThePatient['received blood w/i first day'] = 1 & vitals['Heart rate'] > 100, & vitals['Resp rate'] >20 & < 30 and vitals['sbp'] > 100:
+        howeverYouTrackThePatient['hemorrhagicClass'] = 2
+    if howeverYouTrackThePatient['received blood w/i first day'] = 1 & vitals['Heart rate'] > 120, & vitals['Resp rate'] >30 & < 40 and vitals['sbp'] < 110:
+        howeverYouTrackThePatient['hemorrhagicClass'] = 3
+    if howeverYouTrackThePatient['received blood w/i first day'] = 1 & vitals['Heart rate'] > 140, & vitals['Resp rate'] >35  and vitals['sbp'] <100:
+        howeverYouTrackThePatient['hemorrhagicClass'] = 4
