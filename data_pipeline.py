@@ -226,7 +226,33 @@ master_dict = {}
 for index, row in df_ed_stays.iterrows():	
 	current_pt = row['subject_id']
 	current_pt_ed_gender = row['gender']
+	current_pt_ed_gender_coded = 1 if current_pt_ed_gender == 'M' else 0
+
 	current_pt_ed_race = row['race']
+	current_pt_ed_race_coded = ''
+
+	if current_pt_ed_race in ['WHITE', 'WHITE - RUSSIAN', 'WHITE - BRAZILIAN','PORTUGUESE', 'WHITE - OTHER EUROPEAN','WHITE - EASTERN EUROPEAN']:
+	    current_pt_ed_race_coded = 0
+	elif current_pt_ed_race in ['BLACK/AFRICAN AMERICAN', 'BLACK/CAPE VERDEAN','BLACK/CARIBBEAN ISLAND','BLACK/AFRICAN']:
+	    current_pt_ed_race_coded = 1
+	elif current_pt_ed_race in ['HISPANIC/LATINO - DOMINICAN', 'HISPANIC/LATINO - SALVADORAN','HISPANIC/LATINO - PUERTO RICAN', 
+								'HISPANIC/LATINO - GUATEMALAN', 'HISPANIC OR LATINO', 'HISPANIC/LATINO - MEXICAN','HISPANIC/LATINO - COLUMBIAN',
+								'SOUTH AMERICAN','HISPANIC/LATINO - CUBAN','HISPANIC/LATINO - HONDURAN','HISPANIC/LATINO - CENTRAL AMERICAN']:
+	    current_pt_ed_race_coded = 2
+	elif current_pt_ed_race in ['ASIAN', 'ASIAN - SOUTH EAST ASIAN', 'ASIAN - CHINESE','ASIAN - ASIAN INDIAN','ASIAN - KOREAN']:
+	    current_pt_ed_race_coded = 3
+	elif current_pt_ed_race in ['MULTIPLE RACE/ETHNICITY']:
+		current_pt_ed_race_coded = 4
+	elif current_pt_ed_race in ['AMERICAN INDIAN/ALASKA NATIVE', 'NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER']:
+		current_pt_ed_race_coded = 5
+	elif current_pt_ed_race in ['OTHER','UNKNOWN','UNABLE TO OBTAIN','PATIENT DECLINED TO ANSWER']:
+		current_pt_ed_race_coded = 6
+	else:
+	    print("Unexpectedly, there was a race that had not been pre-categorized: ", race)
+	    sys.exit(0)
+
+
+
 	current_pt_ed_hadm_id = row['hadm_id']
 
 	current_pt_adm_death_time = ''
@@ -304,6 +330,7 @@ for index, row in df_ed_stays.iterrows():
 		# placeholder variable that tells me if this patient AS of this visit was first on a blood thinner - this drives
 		# whether downstream summation takes place
 		blood_thinner = None
+		xa_inh = None
 
 		# Logic = pt was ever on a blood thinner, this is first visit we've noted for them, and they are only ever on one type of blood thinner
 		if (current_pt in pt_blood_thinner_look_up and 
@@ -314,6 +341,10 @@ for index, row in df_ed_stays.iterrows():
 			if current_ed_visit in pt_blood_thinner_look_up[current_pt]:
 				pts_assessed_for_blood_thinner.append(current_pt)
 				blood_thinner = pt_blood_thinner_look_up[current_pt][BLOOD_THINNER_CATEGORY]
+				if blood_thinner == WARFARIN_MED:
+					xa_inh = 0
+				else:
+					xa_inh = 1
 
 		total_hours_inpt_post_blood_thinner_drg_primary = 0
 		total_hours_inpt_post_blood_thinner_drg_secondary = 0
@@ -340,6 +371,27 @@ for index, row in df_ed_stays.iterrows():
 			current_pt_adm_language = current_pt_hosp_admissions_row['language']
 			current_pt_adm_marital_status = current_pt_hosp_admissions_row['marital_status']
 			current_pt_adm_race = current_pt_hosp_admissions_row['race']
+
+			if current_pt_adm_race in ['WHITE', 'WHITE - RUSSIAN', 'WHITE - BRAZILIAN','PORTUGUESE', 'WHITE - OTHER EUROPEAN','WHITE - EASTERN EUROPEAN']:
+			    current_pt_adm_race_coded = 0
+			elif current_pt_adm_race in ['BLACK/AFRICAN AMERICAN', 'BLACK/CAPE VERDEAN','BLACK/CARIBBEAN ISLAND','BLACK/AFRICAN']:
+			    current_pt_adm_race_coded = 1
+			elif current_pt_adm_race in ['HISPANIC/LATINO - DOMINICAN', 'HISPANIC/LATINO - SALVADORAN','HISPANIC/LATINO - PUERTO RICAN', 
+										'HISPANIC/LATINO - GUATEMALAN', 'HISPANIC OR LATINO', 'HISPANIC/LATINO - MEXICAN','HISPANIC/LATINO - COLUMBIAN',
+										'SOUTH AMERICAN','HISPANIC/LATINO - CUBAN','HISPANIC/LATINO - HONDURAN','HISPANIC/LATINO - CENTRAL AMERICAN']:
+			    current_pt_adm_race_coded = 2
+			elif current_pt_adm_race in ['ASIAN', 'ASIAN - SOUTH EAST ASIAN', 'ASIAN - CHINESE','ASIAN - ASIAN INDIAN','ASIAN - KOREAN']:
+			    current_pt_adm_race_coded = 3
+			elif current_pt_adm_race in ['MULTIPLE RACE/ETHNICITY']:
+				current_pt_adm_race_coded = 4
+			elif current_pt_adm_race in ['AMERICAN INDIAN/ALASKA NATIVE', 'NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER']:
+				current_pt_adm_race_coded = 5
+			elif current_pt_adm_race in ['OTHER','UNKNOWN','UNABLE TO OBTAIN','PATIENT DECLINED TO ANSWER']:
+				current_pt_adm_race_coded = 6
+			else:
+			    print("Unexpectedly, there was a race that had not been pre-categorized: ", race)
+	    		sys.exit(0)
+
 
 			# Per discussion, we want to add the cost of the current visit to the hospitalizations
 			if blood_thinner is not None:
@@ -461,12 +513,14 @@ for index, row in df_ed_stays.iterrows():
 			'ed_num_meds' : ed_num_meds, # Number of home meds pt is on as of the current ED visit 
 			'ed_gender' : current_pt_ed_gender, # Gender noted for current ED visit 
 			'ed_race' : current_pt_ed_race, # Race noted for current ED visit 
+			'ed_race_coded' : current_pt_ed_race_coded, # Race coded for current ED visit [see above]
 			'hosp_adm_death_time' : current_pt_adm_death_time, # Time of death if patient was admitted and died - of note, this will miss pts who 
 																# died in the emergency department prior to an admission
 			'hosp_adm_insurance' : current_pt_adm_insurance, # Insurance type at the time of ED visit as noted by hosp admission
 			'hosp_adm_language' : current_pt_adm_language, # Primary language at the time of ED visit as noted by hosp admission
 			'hosp_adm_marital_status' : current_pt_adm_marital_status, # Marital status at the time of ED visit as noted by hosp admission
 			'hosp_adm_race' : current_pt_adm_race,  # Race at the time of ED visit as noted by hosp admission
+			'hosp_adm_race_coded' : current_pt_adm_race_coded,  # Race coded at the time of ED visit as noted by hosp admission [see above]
 			'death_subseq_ed_encounters' : death_subseq_ed_encounters, # Notes if any subsequent ED visits within the window ended in death (T/F)
 			'num_subseq_ed_encounters' : num_subseq_ed_encounters, # This is total number of subsequent ED visits within the window, no other excl/incl criteria
 			'num_total_visits' : num_total_visits, # This is total number of ED visits all time, with no excl/incl criteria
@@ -494,13 +548,16 @@ for index, row in df_ed_stays.iterrows():
 																					# that meet pre-screened ICD 
 																					# criteria and were for pts on blood
 																					# thinner
-			'not_on_htn_subseq_ed_encounter' : not_on_htn_subseq_ed_encounter # Indicates if a pt originally presented with HTN and was not on a ACE/ARB
+			'not_on_htn_subseq_ed_encounter' : not_on_htn_subseq_ed_encounter, # Indicates if a pt originally presented with HTN and was not on a ACE/ARB
 																				# and then returns for a subsequent visit within 30 days and is still HTN
 																				# and still with no ACE/ARB
+			'current_pt_ed_gender_coded' : current_pt_ed_gender_coded, # per GF request: 0: if female, 1: if male
+			'xa_inh' : xa_inh, # per GF request: 0: Non-Xainh [aka Warfarin] 1: Xarelto, Eliquis, etc,
+
 
 		}
-	if index > 10000:
-		break
+	# if index > 10000:
+	# 	break
 
 
 
