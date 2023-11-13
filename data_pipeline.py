@@ -5,7 +5,6 @@ import sys
 import os
 import re
 
-
 # Fun edge cases:
 # (a) 10000032 -> have an ED d/c followed by immediate re-admission both linked to the same admission ID
 # (b) what does it mean to have a hospital admission id with dispo to home?
@@ -60,10 +59,12 @@ base_hosp_dir = "/Users/meilakhbarshay/Downloads/mimic-iv-2.2/hosp"
 ed_dx_filename = "diagnosis.csv"
 ed_stays_filename = "edstays.csv"
 ed_med_rec_filename = "medrecon.csv"
+ed_vital_sgins_filename = "vitalsign.csv"
 
 ed_dx_path = os.path.join(base_ed_dir, ed_dx_filename)
 ed_stays_path = os.path.join(base_ed_dir, ed_stays_filename)
 ed_med_rec_path = os.path.join(base_ed_dir, ed_med_rec_filename)
+ed_vital_sgins_path = os.path.join(base_ed_dir, ed_vital_sgins_filename)
 
 icu_stays_filename = "icustays.csv"
 icu_stays_path = os.path.join(base_icu_dir, icu_stays_filename)
@@ -80,6 +81,11 @@ hosp_dx_path = os.path.join(base_hosp_dir, hosp_dx_filename)
 hosp_dx_desc_filename = "d_icd_diagnoses.csv"
 hosp_dx_desc_path = os.path.join(base_hosp_dir, hosp_dx_desc_filename)
 
+blood_thinner_drgs_filename = 'drgs_clean_v1_hcfa_only.csv'
+blood_thinner_drgs_path = os.path.join(output_dir, blood_thinner_drgs_filename)
+
+blood_thinner_icds_of_interest_filename = 'blood_adverse_events_icds.csv'
+blood_thinner_icds_of_interest_path = os.path.join(output_dir, blood_thinner_icds_of_interest_filename)
 
 # Generate Pandas Dataframes
 ed_df_dx = pd.read_csv(ed_dx_path)
@@ -99,21 +105,45 @@ df_ed_stays['hadm_id'] = pd.to_numeric(df_ed_stays['hadm_id'], errors='coerce', 
 df_ed_med_rec = pd.read_csv(ed_med_rec_path)
 df_ed_med_rec_by_ed_stay = df_ed_med_rec.groupby('stay_id').count().reset_index().set_index('stay_id')
 
+df_ed_med_rec_htn_meds = df_ed_med_rec[((df_ed_med_rec['etcdescription'] == 'ACE Inhibitors') | 
+			(df_ed_med_rec['etcdescription'] == 'Angiotensin II Receptor Blockers (ARBs)') | 
+			(df_ed_med_rec['etcdescription'] == '*HTN med') | 
+			(df_ed_med_rec['etcdescription'] == '*HTN medication') | (df_ed_med_rec['etcdescription'] == '*HTN meds.') | 
+			(df_ed_med_rec['etcdescription'] == '*HTN') | 
+			(df_ed_med_rec['etcdescription'] == '*something for HTN') | 
+			(df_ed_med_rec['etcdescription'] == '*a HTN med'))]
+
+
+
+df_ed_vitals = pd.read_csv(ed_vital_sgins_path)
+df_ed_vitals_non_missing = df_ed_vitals[df_ed_vitals['sbp'].notna()]
+df_ed_vitals_non_missing = df_ed_vitals_non_missing.sort_values(by=['subject_id', 'stay_id', 'charttime'], ascending=[True, True, True])
+df_ed_vitals_non_missing_first = df_ed_vitals_non_missing.drop_duplicates(subset='stay_id', keep='first')
 
 hosp_admissions = pd.read_csv(hosp_admissions_path)
 hosp_drgcodes = pd.read_csv(hosp_drgcodes_path)
 
+blood_thinner_drgs = pd.read_csv(blood_thinner_drgs_path)
+blood_thinner_drgs_codes = blood_thinner_drgs['drg_code'].tolist()
+
+blood_thinner_icds_of_interest = pd.read_csv(blood_thinner_icds_of_interest_path)
+blood_thinner_icds_of_interest_9 = blood_thinner_icds_of_interest['icd_9_codes'].tolist()
+blood_thinner_icds_of_interest_10 = blood_thinner_icds_of_interest['icd_10_codes'].tolist()
+
 icu_stays = pd.read_csv(icu_stays_path)
+
+
+
 
 # Initial helper method I used to try to generate which medications we wanted to consider for eliquis vs. heparin 
 # results saved down in csvs that were checked into source control 
-def generate_relevant_blood_thinning_medications():
-	df_ed_med_rec_blood_thiners = df_ed_med_rec
+
+def generate_relevant_blood_thinning_medications(df_ed_med_rec):
 	# isolate only the columns that actually matter for identifying drug names - codes usually correlate to doses, not to
 	# core drug 
 
 	columns_to_drop = ['subject_id', 'stay_id', 'charttime', 'ndc', 'gsn', 'etc_rn', 'etccode']
-	df_ed_med_rec_blood_thiners = df_ed_med_rec_blood_thiners.drop(columns=columns_to_drop)
+	df_ed_med_rec_blood_thiners = df_ed_med_rec.drop(columns=columns_to_drop)
 
 	etc_pattern = '.*warfarin.*|.*Direct Factor Xa Inhibitors.*'
 	name_pattern = '.*warfarin.*|.*apixaban.*|.*coumadin.*'
@@ -125,12 +155,19 @@ def generate_relevant_blood_thinning_medications():
 
 	filtered_df.to_csv(os.path.join(output_dir, 'blood_thinners_v2.csv'), index=False)
 
+
+
+
+
+
+
 def generate_patient_blood_thinner_status():
+	# get the relevant blood thinning medications
 	blood_thinner_meds = pd.read_csv(os.path.join(output_dir,'blood_thinners_v2_clean.csv'))
 	merged_df = df_ed_med_rec.merge(blood_thinner_meds, on=['name', 'etcdescription'], how='inner')
 	pt_medication_mapping = {}
 
-	# Build the initial dictionary mapping patients -> visit -> heparin/eliquis true as of that visit
+	# Build the initial dictionary mapping patients -> visit -> med list (e.g eliquis vs. xarelto)
 	for index, row in merged_df.iterrows():
 		if row['subject_id'] not in pt_medication_mapping:
 			pt_medication_mapping[row['subject_id']] = {}
@@ -180,17 +217,42 @@ def look_up_admission_by_hadm(hadm_id, admission_df):
 print("Start time is: ", datetime.now())
 
 pt_blood_thinner_look_up = generate_patient_blood_thinner_status()
-pts_assessed_for_blood_thinner = []
 
+# This helps identify the first ED visit where a patient was on a blood thinner to establish t=0
+pts_assessed_for_blood_thinner = []
 master_dict = {}
 
-drgs = pd.DataFrame()
-
-for index, row in df_ed_stays.iterrows():
-	
+# Master file is based on going through every single ED visit logged
+for index, row in df_ed_stays.iterrows():	
 	current_pt = row['subject_id']
 	current_pt_ed_gender = row['gender']
+	current_pt_ed_gender_coded = 1 if current_pt_ed_gender == 'M' else 0
+
 	current_pt_ed_race = row['race']
+	current_pt_ed_race_coded = ''
+
+	if current_pt_ed_race in ['WHITE', 'WHITE - RUSSIAN', 'WHITE - BRAZILIAN','PORTUGUESE', 'WHITE - OTHER EUROPEAN','WHITE - EASTERN EUROPEAN']:
+	    current_pt_ed_race_coded = 0
+	elif current_pt_ed_race in ['BLACK/AFRICAN AMERICAN', 'BLACK/CAPE VERDEAN','BLACK/CARIBBEAN ISLAND','BLACK/AFRICAN']:
+	    current_pt_ed_race_coded = 1
+	elif current_pt_ed_race in ['HISPANIC/LATINO - DOMINICAN', 'HISPANIC/LATINO - SALVADORAN','HISPANIC/LATINO - PUERTO RICAN', 
+								'HISPANIC/LATINO - GUATEMALAN', 'HISPANIC OR LATINO', 'HISPANIC/LATINO - MEXICAN','HISPANIC/LATINO - COLUMBIAN',
+								'SOUTH AMERICAN','HISPANIC/LATINO - CUBAN','HISPANIC/LATINO - HONDURAN','HISPANIC/LATINO - CENTRAL AMERICAN']:
+	    current_pt_ed_race_coded = 2
+	elif current_pt_ed_race in ['ASIAN', 'ASIAN - SOUTH EAST ASIAN', 'ASIAN - CHINESE','ASIAN - ASIAN INDIAN','ASIAN - KOREAN']:
+	    current_pt_ed_race_coded = 3
+	elif current_pt_ed_race in ['MULTIPLE RACE/ETHNICITY']:
+		current_pt_ed_race_coded = 4
+	elif current_pt_ed_race in ['AMERICAN INDIAN/ALASKA NATIVE', 'NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER']:
+		current_pt_ed_race_coded = 5
+	elif current_pt_ed_race in ['OTHER','UNKNOWN','UNABLE TO OBTAIN','PATIENT DECLINED TO ANSWER']:
+		current_pt_ed_race_coded = 6
+	else:
+	    print("Unexpectedly, there was a race that had not been pre-categorized: ", race)
+	    sys.exit(0)
+
+
+
 	current_pt_ed_hadm_id = row['hadm_id']
 
 	current_pt_adm_death_time = ''
@@ -199,138 +261,391 @@ for index, row in df_ed_stays.iterrows():
 	current_pt_adm_marital_status = ''
 	current_pt_adm_race = ''
 
-	if index % 300 == 0:
-		print(current_pt)
-
-	if not pd.isna(current_pt_ed_hadm_id):
-		current_pt_ed_hadm_id = int(current_pt_ed_hadm_id)
-
-		current_pt_hosp_admissions_row = look_up_admission_by_hadm(row['hadm_id'],hosp_admissions)
-		current_pt_adm_death_time = current_pt_hosp_admissions_row['deathtime'].iloc[0]
-		current_pt_adm_insurance = current_pt_hosp_admissions_row['insurance'].iloc[0]
-		current_pt_adm_language = current_pt_hosp_admissions_row['language'].iloc[0]
-		current_pt_adm_marital_status = current_pt_hosp_admissions_row['marital_status'].iloc[0]
-		current_pt_adm_race = current_pt_hosp_admissions_row['race'].iloc[0]
-
 	current_ed_visit = row['stay_id']
 
 	current_visit_date = datetime.strptime(row['intime'], mimic_date_format)
+
+	## number of total meds on file for the current ED visit 
+	ed_num_meds = 0 
+	if current_ed_visit in df_ed_med_rec_by_ed_stay.index:
+	    ed_num_meds = df_ed_med_rec_by_ed_stay.loc[current_ed_visit]['name']
+
+	## number of total ED visits for all time for this pt [will be the same for all ED visits]
+	specific_subject_id = current_pt
+	num_total_visits = df_ed_stays_by_pt.loc[specific_subject_id]['stay_id']
+
+	## ED encounter # for that patient relative to other ED visits 
+	encounter_num = row['visit_num']
+
+	## primary dx code for that ED visit 
+	relevant_dx_row = ed_df_primary_dx[(ed_df_primary_dx['stay_id'] == current_ed_visit)]
+	if (len(relevant_dx_row) > 1):
+		print("There can not be more than primary dx for an ED visit")
+		sys.exit(0)
+
+	icd_dxes_blood_thinner_target = None
+
+	if not relevant_dx_row.empty:
+		relevant_dx_row = relevant_dx_row.iloc[0]
+
+		primary_icd_code = relevant_dx_row['icd_code']
+		primary_icd_version = relevant_dx_row['icd_version']
+		primary_icd_title = relevant_dx_row['icd_title']
+
+		primary_icd_is_icd_of_interest = False
+		matching_prefixes = None
+
+		if (primary_icd_version == 9):
+			matching_prefixes = [prefix for prefix in blood_thinner_icds_of_interest_9 if primary_icd_code.startswith(str(prefix))]
+		if (primary_icd_version == 10):
+			matching_prefixes = [prefix for prefix in blood_thinner_icds_of_interest_10 if primary_icd_code.startswith(str(prefix))]
+
+		if matching_prefixes:
+		    primary_icd_is_icd_of_interest = True
+		    icd_dxes_blood_thinner_target = matching_prefixes
+
+	else:
+		primary_icd_code = ''
+		primary_icd_version = ''
+		primary_icd_title = ''
+
+	current_pt_htn_not_on_meds = False
+
+	current_visit_vitals = df_ed_vitals_non_missing_first[df_ed_vitals_non_missing_first['stay_id'] == current_ed_visit]
+	if (len(current_visit_vitals) == 1):
+		current_visit_vitals = current_visit_vitals.iloc[0]
+		if (current_visit_vitals['sbp'] > 139):
+			df_ed_med_rec_htn = df_ed_med_rec_htn_meds[(df_ed_med_rec_htn_meds['stay_id'] == current_ed_visit)]
+			if(len(df_ed_med_rec_htn) == 0):
+				current_pt_htn_not_on_meds = True
+
+	elif len(current_visit_vitals) > 1:
+		print("There was more than one vitals sign row")
+		sys.exit(0)
+
+	if index % 300 == 0:
+		print(current_pt,"-",current_ed_visit)
 
 	next_index = index + 1
 	if (next_index < len(df_ed_stays)):
 		next_row = df_ed_stays.loc[next_index]
 
-		## number of total meds on file 
-		ed_num_meds = 0 
-		if current_ed_visit in df_ed_med_rec_by_ed_stay.index:
-		    ed_num_meds = df_ed_med_rec_by_ed_stay.loc[current_ed_visit]['name']
-
 		## number of subequent ED encounters within N days
 		num_subseq_ed_encounters = 0 
 
-		## number of total visits 
-		specific_subject_id = current_pt
-		num_total_visits = df_ed_stays_by_pt.loc[specific_subject_id]['stay_id']
-
-		## encounter # for that patient 
-		encounter_num = row['visit_num']
-
-		## primary dx code 
-		relevant_dx_row = ed_df_primary_dx[(ed_df_primary_dx['stay_id'] == current_ed_visit)]
-		if not relevant_dx_row.empty:
-			primary_icd_code = relevant_dx_row['icd_code'].iloc[0]
-			primary_icd_version = relevant_dx_row['icd_version'].iloc[0]
-			primary_icd_title = relevant_dx_row['icd_title'].iloc[0]
-		else:
-			primary_icd_code = ''
-			primary_icd_version = ''
-			primary_icd_title = ''
-
 		## death within any visit 
 		death_subseq_ed_encounters = False
-		## cost of all "n" day encounters
 
 		## # of ICU admissions within "n" day
 		num_subseq_icu_admissions = 0
 
+		# pt was HTN and still not on meds for subsequent visit
+		not_on_htn_subseq_ed_encounter = False
+
 		# placeholder variable that tells me if this patient AS of this visit was first on a blood thinner - this drives
 		# whether downstream summation takes place
 		blood_thinner = None
+		blood_thinner_pt = None
+		xa_inh = None
 
-		if (current_pt in pt_blood_thinner_look_up and 
-			current_pt not in pts_assessed_for_blood_thinner and 
+		# Logic = pt was ever on a blood thinner, this is first visit we've noted for them, and they are only ever on one type of blood thinner
+		if (current_pt in pt_blood_thinner_look_up and  
 			pt_blood_thinner_look_up[current_pt][BLOOD_THINNER_ANALYSIS_ELIGIBLE] == True):
+			blood_thinner_pt = pt_blood_thinner_look_up[current_pt][BLOOD_THINNER_CATEGORY]
 			
-			if current_ed_visit in pt_blood_thinner_look_up[current_pt]:
+			# Need to also confirm that pt was on a blood thinner during THIS ED visit 
+			if (current_ed_visit in pt_blood_thinner_look_up[current_pt] and current_pt not in pts_assessed_for_blood_thinner):
 				pts_assessed_for_blood_thinner.append(current_pt)
 				blood_thinner = pt_blood_thinner_look_up[current_pt][BLOOD_THINNER_CATEGORY]
+				if blood_thinner == WARFARIN_MED:
+					xa_inh = 0
+				else:
+					xa_inh = 1
 
-		total_subseq_hours_inpt_post_blood_thinner = 0
+		total_hours_inpt_post_blood_thinner_drg_primary = 0
+		total_hours_inpt_post_blood_thinner_drg_secondary = 0
+		total_hours_inpt_post_blood_thinner_icd = 0 
+
+		total_hours_inpt_post_blood_thinner_icd_primary = 0
+		total_hours_inpt_post_blood_thinner_icd_secondary = 0
+
+		drg_national_payment_rate_primary = 0 
+		drg_national_payment_rate_secondary = 0 
+
+
+		if not pd.isna(current_pt_ed_hadm_id):
+
+			# Some metadata has to be obtained from the hospitalizations table 
+			current_pt_ed_hadm_id = int(current_pt_ed_hadm_id)
+
+			current_pt_hosp_admissions_row = look_up_admission_by_hadm(row['hadm_id'],hosp_admissions)
+			if (len(current_pt_hosp_admissions_row) > 1):
+				print("There should not be more than one hospital admission per id.")
+				sys.exit(0)
+
+			current_pt_hosp_admissions_row = current_pt_hosp_admissions_row.iloc[0]
+
+			current_pt_adm_death_time = current_pt_hosp_admissions_row['deathtime']
+			current_pt_adm_insurance = current_pt_hosp_admissions_row['insurance']
+			current_pt_adm_language = current_pt_hosp_admissions_row['language']
+			current_pt_adm_marital_status = current_pt_hosp_admissions_row['marital_status']
+			current_pt_adm_race = current_pt_hosp_admissions_row['race']
+
+			if current_pt_adm_race in ['WHITE', 'WHITE - RUSSIAN', 'WHITE - BRAZILIAN','PORTUGUESE', 'WHITE - OTHER EUROPEAN','WHITE - EASTERN EUROPEAN']:
+			    current_pt_adm_race_coded = 0
+			elif current_pt_adm_race in ['BLACK/AFRICAN AMERICAN', 'BLACK/CAPE VERDEAN','BLACK/CARIBBEAN ISLAND','BLACK/AFRICAN']:
+			    current_pt_adm_race_coded = 1
+			elif current_pt_adm_race in ['HISPANIC/LATINO - DOMINICAN', 'HISPANIC/LATINO - SALVADORAN','HISPANIC/LATINO - PUERTO RICAN', 
+										'HISPANIC/LATINO - GUATEMALAN', 'HISPANIC OR LATINO', 'HISPANIC/LATINO - MEXICAN','HISPANIC/LATINO - COLUMBIAN',
+										'SOUTH AMERICAN','HISPANIC/LATINO - CUBAN','HISPANIC/LATINO - HONDURAN','HISPANIC/LATINO - CENTRAL AMERICAN']:
+			    current_pt_adm_race_coded = 2
+			elif current_pt_adm_race in ['ASIAN', 'ASIAN - SOUTH EAST ASIAN', 'ASIAN - CHINESE','ASIAN - ASIAN INDIAN','ASIAN - KOREAN']:
+			    current_pt_adm_race_coded = 3
+			elif current_pt_adm_race in ['MULTIPLE RACE/ETHNICITY']:
+				current_pt_adm_race_coded = 4
+			elif current_pt_adm_race in ['AMERICAN INDIAN/ALASKA NATIVE', 'NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER']:
+				current_pt_adm_race_coded = 5
+			elif current_pt_adm_race in ['OTHER','UNKNOWN','UNABLE TO OBTAIN','PATIENT DECLINED TO ANSWER']:
+				current_pt_adm_race_coded = 6
+			else:
+			    print("Unexpectedly, there was a race that had not been pre-categorized: ", race)
+			    sys.exit(0)
+
+
+			# Per discussion, we want to add the cost of the current visit to the hospitalizations
+			if blood_thinner is not None:
+				admittime = datetime.strptime(current_pt_hosp_admissions_row['admittime'], mimic_date_format)
+				dischtime = datetime.strptime(current_pt_hosp_admissions_row['dischtime'], mimic_date_format)
+				los_hours = (dischtime - admittime).total_seconds() / 3600
+
+				# ICD-based LOS 
+				current_visit_dxs = ed_df_dx[ed_df_dx['stay_id'] == current_ed_visit]
+				current_visit_dxs_icd9 = current_visit_dxs[current_visit_dxs['icd_version'] == 9]['icd_code'].tolist()
+				current_visit_dxs_icd10 = current_visit_dxs[current_visit_dxs['icd_version'] == 10]['icd_code'].tolist()
+
+				matching_prefixes_9 = [prefix for code in current_visit_dxs_icd9 for prefix in blood_thinner_icds_of_interest_9 if code.startswith(str(prefix))]
+				matching_prefixes_10 = [prefix for code in current_visit_dxs_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
+
+				if matching_prefixes_9 or matching_prefixes_10:
+				    total_hours_inpt_post_blood_thinner_icd += los_hours
+
+
+				current_visit_dxs_primary = ed_df_dx[(ed_df_dx['stay_id'] == current_ed_visit) & (ed_df_dx['seq_num'] == 1)]
+				current_visit_dxs_primary_icd9 = current_visit_dxs_primary[current_visit_dxs_primary['icd_version'] == 9]['icd_code'].tolist()
+				current_visit_dxs_primary_icd10 = current_visit_dxs_primary[current_visit_dxs_primary['icd_version'] == 10]['icd_code'].tolist()
+
+				matching_prefixes_9 = [prefix for code in current_visit_dxs_primary_icd9 for prefix in blood_thinner_icds_of_interest_9 if code.startswith(str(prefix))]
+				matching_prefixes_10 = [prefix for code in current_visit_dxs_primary_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
+
+				if matching_prefixes_9 or matching_prefixes_10:
+				    total_hours_inpt_post_blood_thinner_icd_primary += los_hours
+
+
+				current_visit_primary_sec_dxs = ed_df_dx[(ed_df_dx['stay_id'] == current_ed_visit) & ((ed_df_dx['seq_num'] == 1) | (ed_df_dx['seq_num'] == 2))]
+				current_visit_primary_sec_dxs_icd9 = current_visit_primary_sec_dxs[current_visit_primary_sec_dxs['icd_version'] == 9]['icd_code'].tolist()
+				current_visit_primary_sec_dxs_icd10 = current_visit_primary_sec_dxs[current_visit_primary_sec_dxs['icd_version'] == 10]['icd_code'].tolist()
+
+				matching_prefixes_9 = [prefix for code in current_visit_primary_sec_dxs_icd9 for prefix in blood_thinner_icds_of_interest_9 if code.startswith(str(prefix))]
+				matching_prefixes_10 = [prefix for code in current_visit_primary_sec_dxs_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
+
+				if matching_prefixes_9 or matching_prefixes_10:
+				    total_hours_inpt_post_blood_thinner_icd_secondary += los_hours
+
+
+
+				# DRG-based LOS and cost assessment
+				relevant_hcfa_drg = hosp_drgcodes[(hosp_drgcodes['hadm_id'] == current_pt_ed_hadm_id) & (hosp_drgcodes['drg_type'] == 'HCFA')]
+				drg_code = None 
+				if not relevant_hcfa_drg.empty:
+					drg_code = relevant_hcfa_drg['drg_code'].iloc[0]
+
+					if drg_code in blood_thinner_drgs_codes: 
+						drg_row = blood_thinner_drgs[blood_thinner_drgs['drg_code'] == drg_code]
+						if len(drg_row) == 1:
+							drg_row = drg_row.iloc[0]
+						else:
+							print("This is unexpected!")
+							sys.exit(0)
+
+						if (drg_row['primary_outcomes'] == 1):
+							total_hours_inpt_post_blood_thinner_drg_primary += los_hours
+							drg_national_payment_rate_primary += drg_row['national_payment_rate']
+						elif (drg_row['secondary_outcomes'] == 1):
+							total_hours_inpt_post_blood_thinner_drg_secondary += los_hours
+							drg_national_payment_rate_secondary += drg_row['national_payment_rate']
+						else:
+							print("This should not happen")
+							sys.exit(0)
+
+
+###################### NEXT VISIT ITERATION BEGINS HERE ###################### 
 		
 		while (next_row['subject_id'] == current_pt):
 			next_visit_date = datetime.strptime(next_row['intime'], mimic_date_format)
 			time_delta = next_visit_date - current_visit_date
+			next_row_hadm_id = None
+			if not pd.isna(next_row['hadm_id']):
+				next_row_hadm_id = int(next_row['hadm_id'])
+
+			# For metrics where we want to look within a visit window:
 			if (time_delta.days <= num_days_revisit_window):
 				num_subseq_ed_encounters += 1 
 				if (next_row['disposition'] == DISPO_EXPIRED):
 					death_subseq_ed_encounters = True
-				if not pd.isna(next_row['hadm_id']):
-					next_row_hadm_id = int(next_row['hadm_id'])
+				if next_row_hadm_id:
 					next_row_icu_admissions_row = look_up_admission_by_hadm(next_row_hadm_id,icu_stays)
 					if not next_row_icu_admissions_row.empty:
 						num_subseq_icu_admissions += 1
 
-					next_row_hosp_admissions_row = look_up_admission_by_hadm(next_row_hadm_id,hosp_admissions)
-					if not next_row_hosp_admissions_row.empty:
-						# TODO ********************************** 
-						# Prep work - might need to merge d_icd_diagnoses and diagnoses_icd 
-						# Alternatively, used drgcodes - do all pts have these? 
-						if blood_thinner is not None: # AND THE DX IS R
-							admittime = datetime.strptime(next_row_hosp_admissions_row['admittime'].iloc[0], mimic_date_format)
-							dischtime = datetime.strptime(next_row_hosp_admissions_row['dischtime'].iloc[0], mimic_date_format)
-							los_hours = (dischtime - admittime).total_seconds() / 3600
-							total_subseq_hours_inpt_post_blood_thinner += los_hours
-							drgs = pd.concat([drgs, hosp_drgcodes[hosp_drgcodes['hadm_id'] == next_row['hadm_id']]])
-					else:
-						print("AH THERE WAS NO ADMISSION!")
-						sys.exit(0)
+
+				if (current_pt_htn_not_on_meds):
+					next_visit_vitals = df_ed_vitals_non_missing_first[df_ed_vitals_non_missing_first['stay_id'] == next_row['stay_id']]
+					if (len(next_visit_vitals) == 1):
+						next_visit_vitals = next_visit_vitals.iloc[0]
+						if (next_visit_vitals['sbp'] > 139):
+							df_ed_med_rec_htn = df_ed_med_rec_htn_meds[(df_ed_med_rec_htn_meds['stay_id'] == next_row['stay_id'])]
+							if (len(df_ed_med_rec_htn) == 0):
+								not_on_htn_subseq_ed_encounter = True
+
+			if next_row_hadm_id:
+				next_row_hosp_admissions_row = look_up_admission_by_hadm(next_row_hadm_id,hosp_admissions)
+				if not next_row_hosp_admissions_row.empty:
+					if blood_thinner is not None: 
+						admittime = datetime.strptime(next_row_hosp_admissions_row['admittime'].iloc[0], mimic_date_format)
+						dischtime = datetime.strptime(next_row_hosp_admissions_row['dischtime'].iloc[0], mimic_date_format)
+						los_hours = (dischtime - admittime).total_seconds() / 3600
+
+						# ICD-based LOS [for now brute forcing three different levels of calcs - to-reivist]
+						current_visit_dxs = ed_df_dx[ed_df_dx['stay_id'] == next_row['stay_id']]
+						current_visit_dxs_icd9 = current_visit_dxs[current_visit_dxs['icd_version'] == 9]['icd_code'].tolist()
+						current_visit_dxs_icd10 = current_visit_dxs[current_visit_dxs['icd_version'] == 10]['icd_code'].tolist()
+
+						matching_prefixes_9 = [prefix for code in current_visit_dxs_icd9 for prefix in blood_thinner_icds_of_interest_9 if code.startswith(str(prefix))]
+						matching_prefixes_10 = [prefix for code in current_visit_dxs_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
+
+						if matching_prefixes_9 or matching_prefixes_10:
+						    total_hours_inpt_post_blood_thinner_icd += los_hours
+
+						
+						current_visit_dxs_primary = ed_df_dx[(ed_df_dx['stay_id'] == next_row['stay_id']) & (ed_df_dx['seq_num'] == 1)]
+						current_visit_dxs_primary_icd9 = current_visit_dxs_primary[current_visit_dxs_primary['icd_version'] == 9]['icd_code'].tolist()
+						current_visit_dxs_primary_icd10 = current_visit_dxs_primary[current_visit_dxs_primary['icd_version'] == 10]['icd_code'].tolist()
+
+						matching_prefixes_9 = [prefix for code in current_visit_dxs_primary_icd9 for prefix in blood_thinner_icds_of_interest_9 if code.startswith(str(prefix))]
+						matching_prefixes_10 = [prefix for code in current_visit_dxs_primary_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
+
+						if matching_prefixes_9 or matching_prefixes_10:
+						    total_hours_inpt_post_blood_thinner_icd_primary += los_hours
+
+						
+						current_visit_primary_sec_dxs = ed_df_dx[(ed_df_dx['stay_id'] == next_row['stay_id']) & ((ed_df_dx['seq_num'] == 1) | (ed_df_dx['seq_num'] == 2))]
+						current_visit_primary_sec_dxs_icd9 = current_visit_primary_sec_dxs[current_visit_primary_sec_dxs['icd_version'] == 9]['icd_code'].tolist()
+						current_visit_primary_sec_dxs_icd10 = current_visit_primary_sec_dxs[current_visit_primary_sec_dxs['icd_version'] == 10]['icd_code'].tolist()
+
+						matching_prefixes_9 = [prefix for code in current_visit_primary_sec_dxs_icd9 for prefix in blood_thinner_icds_of_interest_9 if code.startswith(str(prefix))]
+						matching_prefixes_10 = [prefix for code in current_visit_primary_sec_dxs_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
+
+						if matching_prefixes_9 or matching_prefixes_10:
+						    total_hours_inpt_post_blood_thinner_icd_secondary += los_hours
+
+
+
+						# DRG-based LOS and cost assessment
+						relevant_hcfa_drg = hosp_drgcodes[(hosp_drgcodes['hadm_id'] == next_row['hadm_id']) & (hosp_drgcodes['drg_type'] == 'HCFA')]
+						drg_code = None 
+						if not relevant_hcfa_drg.empty:
+							drg_code = relevant_hcfa_drg['drg_code'].iloc[0]
+
+						if drg_code in blood_thinner_drgs_codes: 
+							drg_row = blood_thinner_drgs[blood_thinner_drgs['drg_code'] == drg_code]
+							if len(drg_row) == 1:
+								drg_row = drg_row.iloc[0]
+							else:
+								print("This is unexpected!")
+								sys.exit(0)
+							
+							if (drg_row['primary_outcomes'] == 1):
+								total_hours_inpt_post_blood_thinner_drg_primary += los_hours
+								drg_national_payment_rate_primary += drg_row['national_payment_rate']
+							elif (drg_row['secondary_outcomes'] == 1):
+								total_hours_inpt_post_blood_thinner_drg_secondary += los_hours
+								drg_national_payment_rate_secondary += drg_row['national_payment_rate']
+							else:
+								print("This should not happen")
+								sys.exit(0)
 			next_index += 1 
-			next_row = df_ed_stays.loc[next_index]	
+			next_row = df_ed_stays.loc[next_index]
 
 		master_dict[current_ed_visit] = {
-			'subject_id' : current_pt, 
-			'hadm_id' : current_pt_ed_hadm_id,
-			'ed_encounter_num' : encounter_num,
-			'ed_primary_icd_code': primary_icd_code,
-			'ed_primary_icd_version' : primary_icd_version,
-			'ed_primary_icd_title' : primary_icd_title,
-			'ed_num_meds' : ed_num_meds,
-			'ed_gender' : current_pt_ed_gender,
-			'ed_race' : current_pt_ed_race,
-			'hosp_adm_death_time' : current_pt_adm_death_time,
-			'hosp_adm_insurance' : current_pt_adm_insurance,
-			'hosp_adm_language' : current_pt_adm_language,
-			'hosp_adm_marital_status' : current_pt_adm_marital_status,
-			'hosp_adm_race' : current_pt_adm_race, 
-			'death_subseq_ed_encounters' : death_subseq_ed_encounters,
-			'num_subseq_ed_encounters' : num_subseq_ed_encounters,
-			'num_total_visits' : num_total_visits,
-			'num_subseq_icu_admissions' : num_subseq_icu_admissions, 
-			'blood_thinner' : blood_thinner,
-			'total_subseq_hours_inpt_post_blood_thinner' : total_subseq_hours_inpt_post_blood_thinner
+			'subject_id' : current_pt, # Patient level identifier
+			'hadm_id' : current_pt_ed_hadm_id, # Identifier for the hospitalization, if there was one
+			'ed_encounter_num' : encounter_num, # Index of which ED visit this was for the patient (first vs. second)
+			'ed_primary_icd_code': primary_icd_code, # Primary DX code for the ED encounter (actual ICD code)
+			'ed_primary_icd_version' : primary_icd_version, # Primary DX code for the ED encounter (icd 9 vs 10)
+			'ed_primary_icd_title' : primary_icd_title, # Primary DX code for the ED encounter (ICD description plain text)
+			'ed_primary_icd_title_is_of_interest' : primary_icd_is_icd_of_interest, # Per discussion with GF, notes if the primary dx is a blood thinner
+																					# dx of interest
+			'ed_primary_icd_dxes_blood_thinner_target' : icd_dxes_blood_thinner_target, # Indicates what ICD prefix the given ED visit matched on for ICD of interest
+			'ed_num_meds' : ed_num_meds, # Number of home meds pt is on as of the current ED visit 
+			'ed_gender' : current_pt_ed_gender, # Gender noted for current ED visit 
+			'ed_race' : current_pt_ed_race, # Race noted for current ED visit 
+			'ed_race_coded' : current_pt_ed_race_coded, # Race coded for current ED visit [see above]
+			'hosp_adm_death_time' : current_pt_adm_death_time, # Time of death if patient was admitted and died - of note, this will miss pts who 
+																# died in the emergency department prior to an admission
+			'hosp_adm_insurance' : current_pt_adm_insurance, # Insurance type at the time of ED visit as noted by hosp admission
+			'hosp_adm_language' : current_pt_adm_language, # Primary language at the time of ED visit as noted by hosp admission
+			'hosp_adm_marital_status' : current_pt_adm_marital_status, # Marital status at the time of ED visit as noted by hosp admission
+			'hosp_adm_race' : current_pt_adm_race,  # Race at the time of ED visit as noted by hosp admission
+			'hosp_adm_race_coded' : current_pt_adm_race_coded,  # Race coded at the time of ED visit as noted by hosp admission [see above]
+			'death_subseq_ed_encounters' : death_subseq_ed_encounters, # Notes if any subsequent ED visits within the window ended in death (T/F)
+			'num_subseq_ed_encounters' : num_subseq_ed_encounters, # This is total number of subsequent ED visits within the window, no other excl/incl criteria
+			'num_total_visits' : num_total_visits, # This is total number of ED visits all time, with no excl/incl criteria
+			'num_subseq_icu_admissions' : num_subseq_icu_admissions, # This is calculated number of ICU admissions within the window
+			'blood_thinner' : blood_thinner, # Notes type of blood thinner pt was on if this was ED first visit on blood thinner 
+			'blood_thinner_pt' : blood_thinner_pt, # Notes if this pt is generally on just one blood thinner (regardless of if this is the first visit)
+			'total_hours_inpt_post_blood_thinner_drg_primary' : total_hours_inpt_post_blood_thinner_drg_primary, # Sums total inpt los for all hos
+																												# that meet pre-screened DRG primary
+																												# criteria and were for pts on blood
+																												# thinner 
+			'total_hours_inpt_post_blood_thinner_drg_secondary' : total_hours_inpt_post_blood_thinner_drg_secondary, # Sums total inpt los for all hos
+																												# that meet pre-screened DRG secondary
+																												# criteria and were for pts on blood
+																												# thinner
+			'drg_national_payment_rate_primary' : drg_national_payment_rate_primary, # Sums total inpt cost for all hos
+																					# that meet pre-screened DRG primary
+																					# criteria and were for pts on blood
+																					# thinner based on 
+																					# https://www.optumcoding.com/upload/docs/2021%20DRG_National%20Average%20Payment%20Table_Update.pdf
+			'drg_national_payment_rate_secondary' : drg_national_payment_rate_secondary, # Sums total inpt cost for all hos
+																					# that meet pre-screened DRG secondary
+																					# criteria and were for pts on blood
+																					# thinner based on 
+																					# https://www.optumcoding.com/upload/docs/2021%20DRG_National%20Average%20Payment%20Table_Update.pdf
+			'total_hours_inpt_post_blood_thinner_icd' : total_hours_inpt_post_blood_thinner_icd,  # Sums total inpt los for all hos
+																					# that meet pre-screened ICD 
+																					# criteria and were for pts on blood
+																					# thinner
+			'total_hours_inpt_post_blood_thinner_icd_primary' : total_hours_inpt_post_blood_thinner_icd_primary, # Similar to the above but this only
+																					# sums total inpt los for all hos where primary dx meets
+																					# pre-screened ICD criteria and were for pts on blood thinner
+			'total_hours_inpt_post_blood_thinner_icd_secondary' : total_hours_inpt_post_blood_thinner_icd_secondary, # Similar to the above but this only
+																					# sums total inpt los for all hos where primary dx meets
+																					# pre-screened ICD criteria and were for pts on blood thinner
+			'not_on_htn_subseq_ed_encounter' : not_on_htn_subseq_ed_encounter, # Indicates if a pt originally presented with HTN and was not on a ACE/ARB
+																				# and then returns for a subsequent visit within 30 days and is still HTN
+																				# and still with no ACE/ARB
+			'current_pt_ed_gender_coded' : current_pt_ed_gender_coded, # per GF request: 0: if female, 1: if male
+			'xa_inh' : xa_inh, # per GF request: 0: Non-Xainh [aka Warfarin] 1: Xarelto, Eliquis, etc,
+
+
 		}
+	# if index > 10000:
+	# 	break
 
 
 
 print("End time is: ", datetime.now())
-
-print(drgs)
-
-relevant_drgs = "drgs.csv"
-drgs_path = os.path.join(output_dir, relevant_drgs)
-drgs.to_csv(drgs_path)
-
-
+# sys.exit(0)
 
 output_filename = "output.csv"
 output_path = os.path.join(output_dir, output_filename)
@@ -338,3 +653,13 @@ output_path = os.path.join(output_dir, output_filename)
 df = pd.DataFrame(master_dict).T  
 df.index.name = 'stay_id'
 df.to_csv(output_path)
+
+# filter all medications by Apixiban / Eliquis or heparin 
+# identify which patients have ONLY A or B 
+# Go through every single visit and see if as of that visit one of the meds was being taken
+# Assuming that it's the first visit (based on flag), then iterate through all subsequent visits
+# 	Find every hospital stay by the hadm in the admissions file based on admittime	dischtime 
+#	Sum up total number of days 
+# Prep work - might need to merge d_icd_diagnoses and diagnoses_icd 
+# Alternatively, used drgcodes - do all pts have these? 
+
