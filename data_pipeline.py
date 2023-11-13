@@ -283,10 +283,22 @@ for index, row in df_ed_stays.iterrows():
 		print("There can not be more than primary dx for an ED visit")
 		sys.exit(0)
 
+	
+
 	if not relevant_dx_row.empty:
-		primary_icd_code = relevant_dx_row['icd_code'].iloc[0]
-		primary_icd_version = relevant_dx_row['icd_version'].iloc[0]
-		primary_icd_title = relevant_dx_row['icd_title'].iloc[0]
+		relevant_dx_row = relevant_dx_row.iloc[0]
+
+		primary_icd_code = relevant_dx_row['icd_code']
+		primary_icd_version = relevant_dx_row['icd_version']
+		primary_icd_title = relevant_dx_row['icd_title']
+
+		primary_icd_is_icd_of_interest = False
+
+		if (((primary_icd_version == 9) & (primary_icd_code in blood_thinner_icds_of_interest_9)) or 
+			((primary_icd_version == 10) & (primary_icd_code in blood_thinner_icds_of_interest_10))):
+			primary_icd_is_icd_of_interest = True
+
+
 	else:
 		primary_icd_code = ''
 		primary_icd_version = ''
@@ -330,15 +342,16 @@ for index, row in df_ed_stays.iterrows():
 		# placeholder variable that tells me if this patient AS of this visit was first on a blood thinner - this drives
 		# whether downstream summation takes place
 		blood_thinner = None
+		blood_thinner_pt = None
 		xa_inh = None
 
 		# Logic = pt was ever on a blood thinner, this is first visit we've noted for them, and they are only ever on one type of blood thinner
-		if (current_pt in pt_blood_thinner_look_up and 
-			current_pt not in pts_assessed_for_blood_thinner and 
+		if (current_pt in pt_blood_thinner_look_up and  
 			pt_blood_thinner_look_up[current_pt][BLOOD_THINNER_ANALYSIS_ELIGIBLE] == True):
+			blood_thinner_pt = pt_blood_thinner_look_up[current_pt][BLOOD_THINNER_CATEGORY]
 			
 			# Need to also confirm that pt was on a blood thinner during THIS ED visit 
-			if current_ed_visit in pt_blood_thinner_look_up[current_pt]:
+			if (current_ed_visit in pt_blood_thinner_look_up[current_pt] and current_pt not in pts_assessed_for_blood_thinner):
 				pts_assessed_for_blood_thinner.append(current_pt)
 				blood_thinner = pt_blood_thinner_look_up[current_pt][BLOOD_THINNER_CATEGORY]
 				if blood_thinner == WARFARIN_MED:
@@ -349,6 +362,9 @@ for index, row in df_ed_stays.iterrows():
 		total_hours_inpt_post_blood_thinner_drg_primary = 0
 		total_hours_inpt_post_blood_thinner_drg_secondary = 0
 		total_hours_inpt_post_blood_thinner_icd = 0 
+
+		total_hours_inpt_post_blood_thinner_icd_primary = 0
+		total_hours_inpt_post_blood_thinner_icd_secondary = 0
 
 		drg_national_payment_rate_primary = 0 
 		drg_national_payment_rate_secondary = 0 
@@ -390,7 +406,7 @@ for index, row in df_ed_stays.iterrows():
 				current_pt_adm_race_coded = 6
 			else:
 			    print("Unexpectedly, there was a race that had not been pre-categorized: ", race)
-	    		sys.exit(0)
+			    sys.exit(0)
 
 
 			# Per discussion, we want to add the cost of the current visit to the hospitalizations
@@ -468,7 +484,7 @@ for index, row in df_ed_stays.iterrows():
 						dischtime = datetime.strptime(next_row_hosp_admissions_row['dischtime'].iloc[0], mimic_date_format)
 						los_hours = (dischtime - admittime).total_seconds() / 3600
 
-						# ICD-based LOS 
+						# ICD-based LOS [for now brute forcing three different levels of calcs - to-reivist]
 						current_visit_dxs = ed_df_dx[ed_df_dx['stay_id'] == current_ed_visit]
 						current_visit_dxs_icd9 = current_visit_dxs[current_visit_dxs['icd_version'] == 9]['icd_code'].tolist()
 						current_visit_dxs_icd10 = current_visit_dxs[current_visit_dxs['icd_version'] == 10]['icd_code'].tolist()
@@ -476,6 +492,25 @@ for index, row in df_ed_stays.iterrows():
 						if ((any(code in blood_thinner_icds_of_interest_9 for code in current_visit_dxs_icd9)) or 
 							(any(code in blood_thinner_icds_of_interest_10 for code in current_visit_dxs_icd10))):
 							total_hours_inpt_post_blood_thinner_icd += los_hours
+
+
+						current_visit_dxs_primary = ed_df_dx[(ed_df_dx['stay_id'] == current_ed_visit) & (ed_df_dx['seq_num'] == 1)]
+						current_visit_dxs_primary_icd9 = current_visit_dxs_primary[current_visit_dxs_primary['icd_version'] == 9]['icd_code'].tolist()
+						current_visit_dxs_primary_icd10 = current_visit_dxs_primary[current_visit_dxs_primary['icd_version'] == 10]['icd_code'].tolist()
+
+						if ((any(code in blood_thinner_icds_of_interest_9 for code in current_visit_dxs_primary_icd9)) or 
+							(any(code in blood_thinner_icds_of_interest_10 for code in current_visit_dxs_primary_icd10))):
+							total_hours_inpt_post_blood_thinner_icd_primary += los_hours
+
+
+
+						current_visit_primary_sec_dxs = ed_df_dx[(ed_df_dx['stay_id'] == current_ed_visit) & ((ed_df_dx['seq_num'] == 1) | (ed_df_dx['seq_num'] == 2))]
+						current_visit_primary_sec_dxs_icd9 = current_visit_primary_sec_dxs[current_visit_primary_sec_dxs['icd_version'] == 9]['icd_code'].tolist()
+						current_visit_primary_sec_dxs_icd10 = current_visit_primary_sec_dxs[current_visit_primary_sec_dxs['icd_version'] == 10]['icd_code'].tolist()
+
+						if ((any(code in blood_thinner_icds_of_interest_9 for code in current_visit_primary_sec_dxs_icd9)) or 
+							(any(code in blood_thinner_icds_of_interest_10 for code in current_visit_primary_sec_dxs_icd10))):
+							total_hours_inpt_post_blood_thinner_icd_secondary += los_hours
 
 						# DRG-based LOS and cost assessment
 						relevant_hcfa_drg = hosp_drgcodes[(hosp_drgcodes['hadm_id'] == next_row['hadm_id']) & (hosp_drgcodes['drg_type'] == 'HCFA')]
@@ -510,6 +545,8 @@ for index, row in df_ed_stays.iterrows():
 			'ed_primary_icd_code': primary_icd_code, # Primary DX code for the ED encounter (actual ICD code)
 			'ed_primary_icd_version' : primary_icd_version, # Primary DX code for the ED encounter (icd 9 vs 10)
 			'ed_primary_icd_title' : primary_icd_title, # Primary DX code for the ED encounter (ICD description plain text)
+			'ed_primary_icd_title_is_of_interest' : primary_icd_is_icd_of_interest, # Per discussion with GF, notes if the primary dx is a blood thinner
+																					# dx of interest
 			'ed_num_meds' : ed_num_meds, # Number of home meds pt is on as of the current ED visit 
 			'ed_gender' : current_pt_ed_gender, # Gender noted for current ED visit 
 			'ed_race' : current_pt_ed_race, # Race noted for current ED visit 
@@ -526,6 +563,7 @@ for index, row in df_ed_stays.iterrows():
 			'num_total_visits' : num_total_visits, # This is total number of ED visits all time, with no excl/incl criteria
 			'num_subseq_icu_admissions' : num_subseq_icu_admissions, # This is calculated number of ICU admissions within the window
 			'blood_thinner' : blood_thinner, # Notes type of blood thinner pt was on if this was ED first visit on blood thinner 
+			'blood_thinner_pt' : blood_thinner_pt, # Notes if this pt is generally on just one blood thinner (regardless of if this is the first visit)
 			'total_hours_inpt_post_blood_thinner_drg_primary' : total_hours_inpt_post_blood_thinner_drg_primary, # Sums total inpt los for all hos
 																												# that meet pre-screened DRG primary
 																												# criteria and were for pts on blood
@@ -548,6 +586,12 @@ for index, row in df_ed_stays.iterrows():
 																					# that meet pre-screened ICD 
 																					# criteria and were for pts on blood
 																					# thinner
+			'total_hours_inpt_post_blood_thinner_icd_primary' : total_hours_inpt_post_blood_thinner_icd_primary, # Similar to the above but this only
+																					# sums total inpt los for all hos where primary dx meets
+																					# pre-screened ICD criteria and were for pts on blood thinner
+			'total_hours_inpt_post_blood_thinner_icd_secondary' : total_hours_inpt_post_blood_thinner_icd_secondary, # Similar to the above but this only
+																					# sums total inpt los for all hos where primary dx meets
+																					# pre-screened ICD criteria and were for pts on blood thinner
 			'not_on_htn_subseq_ed_encounter' : not_on_htn_subseq_ed_encounter, # Indicates if a pt originally presented with HTN and was not on a ACE/ARB
 																				# and then returns for a subsequent visit within 30 days and is still HTN
 																				# and still with no ACE/ARB
