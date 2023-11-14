@@ -32,6 +32,7 @@ import re
 #     icu stays table? I think so but ... 
 
 
+
 # Constants
 mimic_date_format = "%Y-%m-%d %H:%M:%S"
 num_days_revisit_window = 30
@@ -45,6 +46,8 @@ RIVAROXABAN_MED = 'rivaroxaban'
 XARELTO_MED = 'Xarelto'
 SAVAYSA_MED = 'Savaysa'
 EDOXABAN_MED = 'Edoxaban'
+
+MAX_SBP = 139
 
 BLOOD_THINNER_ANALYSIS_ELIGIBLE = 'Blood Thinner Analysis Eligible'
 BLOOD_THINNER_CATEGORY = 'Blood Thinner Category'
@@ -75,6 +78,9 @@ hosp_admissions_path = os.path.join(base_hosp_dir, hosp_admissions_filename)
 hosp_drgcodes_filename = "drgcodes.csv"
 hosp_drgcodes_path = os.path.join(base_hosp_dir, hosp_drgcodes_filename)
 
+hosp_patients_filename = 'patients.csv'
+hosp_patients_path = os.path.join(base_hosp_dir, hosp_patients_filename)
+
 hosp_dx_filename = "diagnoses_icd.csv"
 hosp_dx_path = os.path.join(base_hosp_dir, hosp_dx_filename)
 
@@ -91,7 +97,7 @@ blood_thinner_icds_of_interest_path = os.path.join(output_dir, blood_thinner_icd
 ed_df_dx = pd.read_csv(ed_dx_path)
 ## for further performance considerations, may be worth merging the dataframes up-front and reducing data volume (in terms of cols)
 ed_df_primary_dx = ed_df_dx[ed_df_dx['seq_num'] == 1]
-
+ed_df_dx_icd10_htn = ed_df_dx[(ed_df_dx['icd_version'] == 10) & (ed_df_dx['icd_code'].str.startswith('I10'))]
 
 df_ed_stays = pd.read_csv(ed_stays_path)
 # Explicitly sort the dataframe columns by subject_id (aka patient), then time of arrival, and finally stay_id as possible
@@ -113,6 +119,13 @@ df_ed_med_rec_htn_meds = df_ed_med_rec[((df_ed_med_rec['etcdescription'] == 'ACE
 			(df_ed_med_rec['etcdescription'] == '*something for HTN') | 
 			(df_ed_med_rec['etcdescription'] == '*a HTN med'))]
 
+df_ed_med_rec_htn_meds_full = df_ed_med_rec[(df_ed_med_rec['etcdescription'] == 'Alpha-Beta Blockers') | 
+											(df_ed_med_rec['etcdescription'] == 'Beta Blockers Non-Cardiac Selective') | 
+											(df_ed_med_rec['etcdescription'] == 'ACE Inhibitors') | 
+											(df_ed_med_rec['etcdescription'] == 'Angiotensin II Receptor Blockers (ARBs)') |
+											(df_ed_med_rec['etcdescription'] == 'Diuretic - Loop') |
+											(df_ed_med_rec['etcdescription'] == 'Angiotensin II Receptor Blocker (ARB)-Diuretic Combinations') |
+											(df_ed_med_rec['etcdescription'] == 'Diuretic - Thiazides and Related') ]
 
 
 df_ed_vitals = pd.read_csv(ed_vital_sgins_path)
@@ -132,8 +145,7 @@ blood_thinner_icds_of_interest_10 = blood_thinner_icds_of_interest['icd_10_codes
 
 icu_stays = pd.read_csv(icu_stays_path)
 
-
-
+hosp_patients = pd.read_csv(hosp_patients_path)
 
 # Initial helper method I used to try to generate which medications we wanted to consider for eliquis vs. heparin 
 # results saved down in csvs that were checked into source control 
@@ -228,6 +240,21 @@ for index, row in df_ed_stays.iterrows():
 	current_pt_ed_gender = row['gender']
 	current_pt_ed_gender_coded = 1 if current_pt_ed_gender == 'M' else 0
 
+	pt_metadata = hosp_patients[hosp_patients['subject_id'] == current_pt]
+	if (len(pt_metadata) > 1):
+		print("There was more than one row for this patient!")
+		sys.exit(0)
+
+	current_pt_pt_anchor_age = ''
+	current_pt_pt_anchor_year = ''
+	current_pt_anchor_year_group = ''
+
+	if (len(pt_metadata) == 1):
+		pt_metadata = pt_metadata.iloc[0]
+		current_pt_pt_anchor_age = pt_metadata['anchor_age']
+		current_pt_pt_anchor_year = pt_metadata['anchor_year']
+		current_pt_anchor_year_group = pt_metadata['anchor_year_group']
+
 	current_pt_ed_race = row['race']
 	current_pt_ed_race_coded = ''
 
@@ -251,8 +278,6 @@ for index, row in df_ed_stays.iterrows():
 	    print("Unexpectedly, there was a race that had not been pre-categorized: ", race)
 	    sys.exit(0)
 
-
-
 	current_pt_ed_hadm_id = row['hadm_id']
 
 	current_pt_adm_death_time = ''
@@ -264,6 +289,16 @@ for index, row in df_ed_stays.iterrows():
 	current_ed_visit = row['stay_id']
 
 	current_visit_date = datetime.strptime(row['intime'], mimic_date_format)
+
+	pt_vitals = df_ed_vitals_non_missing_first[df_ed_vitals_non_missing_first['subject_id'] == current_pt]
+	pt_vitals_htn = pt_vitals[pt_vitals['sbp'] > MAX_SBP]
+	current_pt_ever_htn_vs = len(pt_vitals_htn) > 0
+
+	pt_htn_meds_full = df_ed_med_rec_htn_meds_full[df_ed_med_rec_htn_meds_full['subject_id'] == current_pt]
+	current_pt_ever_htn_meds_full = len(pt_htn_meds_full) > 0 
+
+	current_pt_ever_htn_icd = len(ed_df_dx_icd10_htn[ed_df_dx_icd10_htn['subject_id'] == current_pt]) > 0
+	
 
 	## number of total meds on file for the current ED visit 
 	ed_num_meds = 0 
@@ -314,7 +349,7 @@ for index, row in df_ed_stays.iterrows():
 	current_visit_vitals = df_ed_vitals_non_missing_first[df_ed_vitals_non_missing_first['stay_id'] == current_ed_visit]
 	if (len(current_visit_vitals) == 1):
 		current_visit_vitals = current_visit_vitals.iloc[0]
-		if (current_visit_vitals['sbp'] > 139):
+		if (current_visit_vitals['sbp'] > MAX_SBP):
 			df_ed_med_rec_htn = df_ed_med_rec_htn_meds[(df_ed_med_rec_htn_meds['stay_id'] == current_ed_visit)]
 			if(len(df_ed_med_rec_htn) == 0):
 				current_pt_htn_not_on_meds = True
@@ -341,6 +376,11 @@ for index, row in df_ed_stays.iterrows():
 
 		# pt was HTN and still not on meds for subsequent visit
 		not_on_htn_subseq_ed_encounter = False
+		not_on_htn_subseq_ed_encounter_num_visits = 0
+
+		# pt was HTN and got on ACEs/ARBs in a subsequent visit
+		on_htn_subseq_ed_encounter_num_visits = 0
+
 
 		# placeholder variable that tells me if this patient AS of this visit was first on a blood thinner - this drives
 		# whether downstream summation takes place
@@ -364,10 +404,14 @@ for index, row in df_ed_stays.iterrows():
 
 		total_hours_inpt_post_blood_thinner_drg_primary = 0
 		total_hours_inpt_post_blood_thinner_drg_secondary = 0
+		
 		total_hours_inpt_post_blood_thinner_icd = 0 
-
 		total_hours_inpt_post_blood_thinner_icd_primary = 0
 		total_hours_inpt_post_blood_thinner_icd_secondary = 0
+
+		total_visits_inpt_post_blood_thinner_icd = 0 
+		total_visits_inpt_post_blood_thinner_icd_primary = 0
+		total_visits_inpt_post_blood_thinner_icd_secondary = 0
 
 		drg_national_payment_rate_primary = 0 
 		drg_national_payment_rate_secondary = 0 
@@ -428,6 +472,7 @@ for index, row in df_ed_stays.iterrows():
 
 				if matching_prefixes_9 or matching_prefixes_10:
 				    total_hours_inpt_post_blood_thinner_icd += los_hours
+				    total_visits_inpt_post_blood_thinner_icd += 1 
 
 
 				current_visit_dxs_primary = ed_df_dx[(ed_df_dx['stay_id'] == current_ed_visit) & (ed_df_dx['seq_num'] == 1)]
@@ -439,6 +484,7 @@ for index, row in df_ed_stays.iterrows():
 
 				if matching_prefixes_9 or matching_prefixes_10:
 				    total_hours_inpt_post_blood_thinner_icd_primary += los_hours
+				    total_visits_inpt_post_blood_thinner_icd_primary +=1 
 
 
 				current_visit_primary_sec_dxs = ed_df_dx[(ed_df_dx['stay_id'] == current_ed_visit) & ((ed_df_dx['seq_num'] == 1) | (ed_df_dx['seq_num'] == 2))]
@@ -450,6 +496,8 @@ for index, row in df_ed_stays.iterrows():
 
 				if matching_prefixes_9 or matching_prefixes_10:
 				    total_hours_inpt_post_blood_thinner_icd_secondary += los_hours
+				    total_visits_inpt_post_blood_thinner_icd_secondary += 1 
+
 
 
 
@@ -502,10 +550,13 @@ for index, row in df_ed_stays.iterrows():
 					next_visit_vitals = df_ed_vitals_non_missing_first[df_ed_vitals_non_missing_first['stay_id'] == next_row['stay_id']]
 					if (len(next_visit_vitals) == 1):
 						next_visit_vitals = next_visit_vitals.iloc[0]
-						if (next_visit_vitals['sbp'] > 139):
+						if (next_visit_vitals['sbp'] > MAX_SBP):
 							df_ed_med_rec_htn = df_ed_med_rec_htn_meds[(df_ed_med_rec_htn_meds['stay_id'] == next_row['stay_id'])]
 							if (len(df_ed_med_rec_htn) == 0):
 								not_on_htn_subseq_ed_encounter = True
+								not_on_htn_subseq_ed_encounter_num_visits += 1
+							else:
+								on_htn_subseq_ed_encounter_num_visits += 1
 
 			if next_row_hadm_id:
 				next_row_hosp_admissions_row = look_up_admission_by_hadm(next_row_hadm_id,hosp_admissions)
@@ -525,6 +576,7 @@ for index, row in df_ed_stays.iterrows():
 
 						if matching_prefixes_9 or matching_prefixes_10:
 						    total_hours_inpt_post_blood_thinner_icd += los_hours
+						    total_visits_inpt_post_blood_thinner_icd += 1
 
 						
 						current_visit_dxs_primary = ed_df_dx[(ed_df_dx['stay_id'] == next_row['stay_id']) & (ed_df_dx['seq_num'] == 1)]
@@ -536,6 +588,7 @@ for index, row in df_ed_stays.iterrows():
 
 						if matching_prefixes_9 or matching_prefixes_10:
 						    total_hours_inpt_post_blood_thinner_icd_primary += los_hours
+						    total_visits_inpt_post_blood_thinner_icd_primary += 1
 
 						
 						current_visit_primary_sec_dxs = ed_df_dx[(ed_df_dx['stay_id'] == next_row['stay_id']) & ((ed_df_dx['seq_num'] == 1) | (ed_df_dx['seq_num'] == 2))]
@@ -547,8 +600,7 @@ for index, row in df_ed_stays.iterrows():
 
 						if matching_prefixes_9 or matching_prefixes_10:
 						    total_hours_inpt_post_blood_thinner_icd_secondary += los_hours
-
-
+						    total_visits_inpt_post_blood_thinner_icd_secondary +=1
 
 						# DRG-based LOS and cost assessment
 						relevant_hcfa_drg = hosp_drgcodes[(hosp_drgcodes['hadm_id'] == next_row['hadm_id']) & (hosp_drgcodes['drg_type'] == 'HCFA')]
@@ -625,19 +677,31 @@ for index, row in df_ed_stays.iterrows():
 																					# that meet pre-screened ICD 
 																					# criteria and were for pts on blood
 																					# thinner
+			'total_visits_inpt_post_blood_thinner_icd' : total_visits_inpt_post_blood_thinner_icd, # total vist number equivalent of the above
 			'total_hours_inpt_post_blood_thinner_icd_primary' : total_hours_inpt_post_blood_thinner_icd_primary, # Similar to the above but this only
 																					# sums total inpt los for all hos where primary dx meets
 																					# pre-screened ICD criteria and were for pts on blood thinner
+			'total_visits_inpt_post_blood_thinner_icd_primary' : total_visits_inpt_post_blood_thinner_icd_primary, # total visit number equivalent of the above
 			'total_hours_inpt_post_blood_thinner_icd_secondary' : total_hours_inpt_post_blood_thinner_icd_secondary, # Similar to the above but this only
 																					# sums total inpt los for all hos where primary dx meets
 																					# pre-screened ICD criteria and were for pts on blood thinner
+			'total_visits_inpt_post_blood_thinner_icd_secondary' : total_visits_inpt_post_blood_thinner_icd_secondary, # total vist number equivalent of the above
 			'not_on_htn_subseq_ed_encounter' : not_on_htn_subseq_ed_encounter, # Indicates if a pt originally presented with HTN and was not on a ACE/ARB
 																				# and then returns for a subsequent visit within 30 days and is still HTN
 																				# and still with no ACE/ARB
+			'not_on_htn_subseq_ed_encounter_num_visits' : not_on_htn_subseq_ed_encounter_num_visits, # equivalent of the above - tracks number of
+																				# visits within 30 days where pt was "HTN" but still no ace/arb
+			'on_htn_subseq_ed_encounter_num_visits' : on_htn_subseq_ed_encounter_num_visits, # This tracks the number of ED visits within 30 days
+																				# that a pt who originally presented with HTN but no ACE/ARB
+																				# had where the pt was put on an ace/arb
 			'current_pt_ed_gender_coded' : current_pt_ed_gender_coded, # per GF request: 0: if female, 1: if male
 			'xa_inh' : xa_inh, # per GF request: 0: Non-Xainh [aka Warfarin] 1: Xarelto, Eliquis, etc,
-
-
+			'current_pt_ever_htn_vs' : current_pt_ever_htn_vs, # notes if the pt was ever HTN during any ED visit's based on vitals
+			'current_pt_ever_htn_icd' : current_pt_ever_htn_icd, # notes if the pt was ever HTN during any ED visit's based on ICD
+			'current_pt_ever_htn_meds_full' : current_pt_ever_htn_meds_full, # notes if the pt was ever on any HTN meds as noted by Tripp's groups
+			'current_pt_pt_anchor_age' : current_pt_pt_anchor_age, # data from hosp patients table
+			'current_pt_pt_anchor_year' : current_pt_pt_anchor_year, # data from hosp patients table
+			'current_pt_anchor_year_group' : current_pt_anchor_year_group, # data from hosp patients table
 		}
 	# if index > 10000:
 	# 	break
