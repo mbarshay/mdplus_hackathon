@@ -416,6 +416,10 @@ for index, row in df_ed_stays.iterrows():
 		drg_national_payment_rate_primary = 0 
 		drg_national_payment_rate_secondary = 0 
 
+		total_visits_ED_post_blood_thinner_icd = 0 
+		total_visits_ED_post_blood_thinner_icd_primary = 0
+		total_visits_ED_post_blood_thinner_icd_secondary = 0
+
 
 		if not pd.isna(current_pt_ed_hadm_id):
 
@@ -558,6 +562,37 @@ for index, row in df_ed_stays.iterrows():
 							else:
 								on_htn_subseq_ed_encounter_num_visits += 1
 
+			
+			# ICD-based LOS [for now brute forcing three different levels of calcs - to-reivist]
+			current_visit_dxs = ed_df_dx[ed_df_dx['stay_id'] == next_row['stay_id']]
+			current_visit_dxs_icd9 = current_visit_dxs[current_visit_dxs['icd_version'] == 9]['icd_code'].tolist()
+			current_visit_dxs_icd10 = current_visit_dxs[current_visit_dxs['icd_version'] == 10]['icd_code'].tolist()
+
+			matching_prefixes_9 = [prefix for code in current_visit_dxs_icd9 for prefix in blood_thinner_icds_of_interest_9 if code.startswith(str(prefix))]
+			matching_prefixes_10 = [prefix for code in current_visit_dxs_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
+			if matching_prefixes_9 or matching_prefixes_10:
+			    total_visits_ED_post_blood_thinner_icd += 1
+
+
+			current_visit_dxs_primary = ed_df_dx[(ed_df_dx['stay_id'] == next_row['stay_id']) & (ed_df_dx['seq_num'] == 1)]
+			current_visit_dxs_primary_icd9 = current_visit_dxs_primary[current_visit_dxs_primary['icd_version'] == 9]['icd_code'].tolist()
+			current_visit_dxs_primary_icd10 = current_visit_dxs_primary[current_visit_dxs_primary['icd_version'] == 10]['icd_code'].tolist()
+
+			matching_prefixes_9 = [prefix for code in current_visit_dxs_primary_icd9 for prefix in blood_thinner_icds_of_interest_9 if code.startswith(str(prefix))]
+			matching_prefixes_10 = [prefix for code in current_visit_dxs_primary_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
+			if matching_prefixes_9 or matching_prefixes_10:
+			    total_visits_ED_post_blood_thinner_icd_primary += 1
+
+
+			current_visit_primary_sec_dxs = ed_df_dx[(ed_df_dx['stay_id'] == next_row['stay_id']) & ((ed_df_dx['seq_num'] == 1) | (ed_df_dx['seq_num'] == 2))]
+			current_visit_primary_sec_dxs_icd9 = current_visit_primary_sec_dxs[current_visit_primary_sec_dxs['icd_version'] == 9]['icd_code'].tolist()
+			current_visit_primary_sec_dxs_icd10 = current_visit_primary_sec_dxs[current_visit_primary_sec_dxs['icd_version'] == 10]['icd_code'].tolist()
+
+			matching_prefixes_9 = [prefix for code in current_visit_primary_sec_dxs_icd9 for prefix in blood_thinner_icds_of_interest_9 if code.startswith(str(prefix))]
+			matching_prefixes_10 = [prefix for code in current_visit_primary_sec_dxs_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
+			if matching_prefixes_9 or matching_prefixes_10:
+			    total_visits_ED_post_blood_thinner_icd_secondary += 1
+
 			if next_row_hadm_id:
 				next_row_hosp_admissions_row = look_up_admission_by_hadm(next_row_hadm_id,hosp_admissions)
 				if not next_row_hosp_admissions_row.empty:
@@ -565,39 +600,15 @@ for index, row in df_ed_stays.iterrows():
 						admittime = datetime.strptime(next_row_hosp_admissions_row['admittime'].iloc[0], mimic_date_format)
 						dischtime = datetime.strptime(next_row_hosp_admissions_row['dischtime'].iloc[0], mimic_date_format)
 						los_hours = (dischtime - admittime).total_seconds() / 3600
-
-						# ICD-based LOS [for now brute forcing three different levels of calcs - to-reivist]
-						current_visit_dxs = ed_df_dx[ed_df_dx['stay_id'] == next_row['stay_id']]
-						current_visit_dxs_icd9 = current_visit_dxs[current_visit_dxs['icd_version'] == 9]['icd_code'].tolist()
-						current_visit_dxs_icd10 = current_visit_dxs[current_visit_dxs['icd_version'] == 10]['icd_code'].tolist()
-
-						matching_prefixes_9 = [prefix for code in current_visit_dxs_icd9 for prefix in blood_thinner_icds_of_interest_9 if code.startswith(str(prefix))]
-						matching_prefixes_10 = [prefix for code in current_visit_dxs_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
-
+						
 						if matching_prefixes_9 or matching_prefixes_10:
 						    total_hours_inpt_post_blood_thinner_icd += los_hours
 						    total_visits_inpt_post_blood_thinner_icd += 1
 
-						
-						current_visit_dxs_primary = ed_df_dx[(ed_df_dx['stay_id'] == next_row['stay_id']) & (ed_df_dx['seq_num'] == 1)]
-						current_visit_dxs_primary_icd9 = current_visit_dxs_primary[current_visit_dxs_primary['icd_version'] == 9]['icd_code'].tolist()
-						current_visit_dxs_primary_icd10 = current_visit_dxs_primary[current_visit_dxs_primary['icd_version'] == 10]['icd_code'].tolist()
-
-						matching_prefixes_9 = [prefix for code in current_visit_dxs_primary_icd9 for prefix in blood_thinner_icds_of_interest_9 if code.startswith(str(prefix))]
-						matching_prefixes_10 = [prefix for code in current_visit_dxs_primary_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
-
 						if matching_prefixes_9 or matching_prefixes_10:
 						    total_hours_inpt_post_blood_thinner_icd_primary += los_hours
 						    total_visits_inpt_post_blood_thinner_icd_primary += 1
-
 						
-						current_visit_primary_sec_dxs = ed_df_dx[(ed_df_dx['stay_id'] == next_row['stay_id']) & ((ed_df_dx['seq_num'] == 1) | (ed_df_dx['seq_num'] == 2))]
-						current_visit_primary_sec_dxs_icd9 = current_visit_primary_sec_dxs[current_visit_primary_sec_dxs['icd_version'] == 9]['icd_code'].tolist()
-						current_visit_primary_sec_dxs_icd10 = current_visit_primary_sec_dxs[current_visit_primary_sec_dxs['icd_version'] == 10]['icd_code'].tolist()
-
-						matching_prefixes_9 = [prefix for code in current_visit_primary_sec_dxs_icd9 for prefix in blood_thinner_icds_of_interest_9 if code.startswith(str(prefix))]
-						matching_prefixes_10 = [prefix for code in current_visit_primary_sec_dxs_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
-
 						if matching_prefixes_9 or matching_prefixes_10:
 						    total_hours_inpt_post_blood_thinner_icd_secondary += los_hours
 						    total_visits_inpt_post_blood_thinner_icd_secondary +=1
@@ -673,6 +684,9 @@ for index, row in df_ed_stays.iterrows():
 																					# criteria and were for pts on blood
 																					# thinner based on 
 																					# https://www.optumcoding.com/upload/docs/2021%20DRG_National%20Average%20Payment%20Table_Update.pdf
+			'total_visits_ED_post_blood_thinner_icd' : total_visits_ED_post_blood_thinner_icd, 
+			'total_visits_ED_post_blood_thinner_icd_primary' : total_visits_ED_post_blood_thinner_icd_primary, 
+			'total_visits_ED_post_blood_thinner_icd_secondary' : total_visits_ED_post_blood_thinner_icd_secondary, 
 			'total_hours_inpt_post_blood_thinner_icd' : total_hours_inpt_post_blood_thinner_icd,  # Sums total inpt los for all hos
 																					# that meet pre-screened ICD 
 																					# criteria and were for pts on blood
@@ -702,6 +716,8 @@ for index, row in df_ed_stays.iterrows():
 			'current_pt_pt_anchor_age' : current_pt_pt_anchor_age, # data from hosp patients table
 			'current_pt_pt_anchor_year' : current_pt_pt_anchor_year, # data from hosp patients table
 			'current_pt_anchor_year_group' : current_pt_anchor_year_group, # data from hosp patients table
+			'current_pt_htn_not_on_meds' : current_pt_htn_not_on_meds,
+
 		}
 	# if index > 10000:
 	# 	break
