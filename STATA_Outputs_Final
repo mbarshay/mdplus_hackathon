@@ -1,0 +1,166 @@
+. logistic inpt i.bt i.insurance i.hosp_adm_race_coded i.current_pt_ed_gender_coded ed_num_meds current_p
+> t_pt_anchor_age
+note: 4.hosp_adm_race_coded != 0 predicts failure perfectly;
+      4.hosp_adm_race_coded omitted and 1 obs not used.
+
+
+Logistic regression                                     Number of obs =  8,352
+                                                        LR chi2(12)   =  27.53
+                                                        Prob > chi2   = 0.0065
+Log likelihood = -2144.1431                             Pseudo R2     = 0.0064
+
+----------------------------------------------------------------------------------------------
+                        inpt | Odds ratio   Std. err.      z    P>|z|     [95% conf. interval]
+-----------------------------+----------------------------------------------------------------
+                          bt |
+                          1  |   .7142877   .0871853    -2.76   0.006     .5623106    .9073401
+                          2  |   .5285703     .08865    -3.80   0.000     .3804891    .7342828
+                             |
+                   insurance |
+                          1  |   1.013949   .2515728     0.06   0.955     .6234806    1.648957
+                          2  |   1.046321   .2536068     0.19   0.852     .6506557    1.682592
+                             |
+         hosp_adm_race_coded |
+                          1  |   1.052771   .1458886     0.37   0.711     .8023763    1.381306
+                          2  |   1.073737   .2873171     0.27   0.790     .6355184    1.814127
+                          3  |   .7340326    .242691    -0.94   0.350     .3839593    1.403284
+                          4  |          1  (empty)
+                          5  |   .4347221   .4429676    -0.82   0.414     .0590018    3.203009
+                          6  |   1.170128   .2150002     0.86   0.393     .8162685    1.677389
+                             |
+1.current_pt_ed_gender_coded |   .9598884   .0827979    -0.47   0.635     .8105838    1.136694
+                 ed_num_meds |   .9873246   .0065355    -1.93   0.054      .974598    1.000217
+    current_pt_pt_anchor_age |   1.001012   .0032548     0.31   0.756     .9946529    1.007412
+                       _cons |   .0926941   .0289651    -7.61   0.000     .0502422    .1710156
+----------------------------------------------------------------------------------------------
+Note: _cons estimates baseline odds.
+
+. logistic edyn i.bt i.insurance i.ed_race_coded i.current_pt_ed_gender_coded ed_num_meds current_pt_pt_a
+> nchor_age
+note: 4.ed_race_coded != 0 predicts failure perfectly;
+      4.ed_race_coded omitted and 3 obs not used.
+
+note: 5.ed_race_coded != 0 predicts failure perfectly;
+      5.ed_race_coded omitted and 32 obs not used.
+
+
+Logistic regression                                     Number of obs =  8,318
+                                                        LR chi2(11)   =  59.40
+                                                        Prob > chi2   = 0.0000
+Log likelihood = -1174.912                              Pseudo R2     = 0.0247
+
+----------------------------------------------------------------------------------------------
+                        edyn | Odds ratio   Std. err.      z    P>|z|     [95% conf. interval]
+-----------------------------+----------------------------------------------------------------
+                          bt |
+                          1  |   .5586296   .1084904    -3.00   0.003     .3817804    .8173992
+                          2  |   .2450023   .0839567    -4.10   0.000      .125165    .4795762
+                             |
+                   insurance |
+                          1  |    .884019   .2813067    -0.39   0.698      .473803    1.649398
+                          2  |   .8762573    .271866    -0.43   0.670     .4770232    1.609622
+                             |
+               ed_race_coded |
+                          1  |    1.39629   .2458727     1.90   0.058     .9887524    1.971804
+                          2  |   1.304336   .4405475     0.79   0.431     .6728076    2.528646
+                          3  |   .8904259   .4112907    -0.25   0.802     .3601015    2.201763
+                          4  |          1  (empty)
+                          5  |          1  (empty)
+                          6  |   .4131637    .172686    -2.11   0.034     .1821184    .9373258
+                             |
+1.current_pt_ed_gender_coded |   .9164217   .1147784    -0.70   0.486     .7169445      1.1714
+                 ed_num_meds |   1.021676   .0086389     2.54   0.011     1.004883    1.038749
+    current_pt_pt_anchor_age |   .9923274    .004553    -1.68   0.093     .9834436    1.001291
+                       _cons |   .0615223   .0256158    -6.70   0.000     .0272033    .1391375
+----------------------------------------------------------------------------------------------
+Note: _cons estimates baseline odds.
+
+## v34 = Total cumulative inpatient hours for bleeding/clotting related stays ##
+ poisson v34 i.bt i.insurance i.hosp_adm_race_coded i.current_pt_ed_gender_coded current_pt_pt_anchor_ag
+> e ed_num_meds, robust
+note: noncount dependent variable encountered; if you are fitting an exponential-mean model, consider
+      using robust standard errors.
+
+Iteration 0:  Log pseudolikelihood = -279301.74  
+Iteration 1:  Log pseudolikelihood = -279300.34  
+Iteration 2:  Log pseudolikelihood = -279300.02  
+Iteration 3:  Log pseudolikelihood = -279299.94  
+Iteration 4:  Log pseudolikelihood = -279299.93  
+Iteration 5:  Log pseudolikelihood = -279299.92  
+Iteration 6:  Log pseudolikelihood = -279299.92  
+Iteration 7:  Log pseudolikelihood = -279299.92  
+Iteration 8:  Log pseudolikelihood = -279299.92  
+
+Poisson regression                                      Number of obs =  8,353
+                                                        Wald chi2(13) = 247.62
+                                                        Prob > chi2   = 0.0000
+Log pseudolikelihood = -279299.92                       Pseudo R2     = 0.0120
+
+----------------------------------------------------------------------------------------------
+                             |               Robust
+                         v34 | Coefficient  std. err.      z    P>|z|     [95% conf. interval]
+-----------------------------+----------------------------------------------------------------
+                          bt |
+                          1  |  -.2763086    .178455    -1.55   0.122    -.6260741    .0734568
+                          2  |  -.7330179    .262261    -2.79   0.005     -1.24704   -.2189957
+                             |
+                   insurance |
+                          1  |   .2430201   .3290858     0.74   0.460    -.4019762    .8880164
+                          2  |   .1951082   .3262643     0.60   0.550    -.4443582    .8345745
+                             |
+         hosp_adm_race_coded |
+                          1  |   .1574902   .1860362     0.85   0.397     -.207134    .5221144
+                          2  |   .4827479   .3720341     1.30   0.194    -.2464255    1.211921
+                          3  |  -.3531237   .4554358    -0.78   0.438    -1.245762     .539514
+                          4  |  -15.18743   1.006002   -15.10   0.000    -17.15915    -13.2157
+                          5  |   .0685667   .9808563     0.07   0.944    -1.853876     1.99101
+                          6  |   .4564748   .2688193     1.70   0.089    -.0704014     .983351
+                             |
+1.current_pt_ed_gender_coded |  -.1306682   .1249958    -1.05   0.296    -.3756554     .114319
+    current_pt_pt_anchor_age |   .0005286   .0044351     0.12   0.905     -.008164    .0092213
+                 ed_num_meds |   .0057631   .0086583     0.67   0.506    -.0112069    .0227331
+                       _cons |   2.178068   .4213588     5.17   0.000      1.35222    3.003916
+----------------------------------------------------------------------------------------------
+
+## v35 = Total number of visits for bleeding/clotting ##
+poisson v35 i.bt i.insurance i.hosp_adm_race_coded i.current_pt_ed_gender_coded current_pt_pt_anchor_ag
+> e ed_num_meds, robust
+
+Iteration 0:  Log pseudolikelihood = -2256.6527  
+Iteration 1:  Log pseudolikelihood = -2256.6441  
+Iteration 2:  Log pseudolikelihood = -2256.6425  
+Iteration 3:  Log pseudolikelihood = -2256.6422  
+Iteration 4:  Log pseudolikelihood = -2256.6421  
+Iteration 5:  Log pseudolikelihood = -2256.6421  
+
+Poisson regression                                      Number of obs =  8,353
+                                                        Wald chi2(13) = 119.98
+                                                        Prob > chi2   = 0.0000
+Log pseudolikelihood = -2256.6421                       Pseudo R2     = 0.0055
+
+----------------------------------------------------------------------------------------------
+                             |               Robust
+                         v35 | Coefficient  std. err.      z    P>|z|     [95% conf. interval]
+-----------------------------+----------------------------------------------------------------
+                          bt |
+                          1  |  -.3037897   .1209162    -2.51   0.012    -.5407811   -.0667982
+                          2  |  -.5991041   .1618245    -3.70   0.000    -.9162743    -.281934
+                             |
+                   insurance |
+                          1  |    -.10423   .2638322    -0.40   0.693    -.6213317    .4128716
+                          2  |  -.1230888   .2596797    -0.47   0.635    -.6320517     .385874
+                             |
+         hosp_adm_race_coded |
+                          1  |   .0377758   .1340967     0.28   0.778    -.2250489    .3006006
+                          2  |   .1783091   .2729166     0.65   0.514    -.3565976    .7132158
+                          3  |  -.3011845   .3419121    -0.88   0.378    -.9713198    .3689509
+                          4  |  -10.02199   1.003831    -9.98   0.000    -11.98946   -8.054514
+                          5  |  -.8042846   .9808957    -0.82   0.412    -2.726805    1.118236
+                          6  |   .1427801   .1851914     0.77   0.441    -.2201885    .5057486
+                             |
+1.current_pt_ed_gender_coded |  -.0341253    .084976    -0.40   0.688    -.2006752    .1324246
+    current_pt_pt_anchor_age |   .0008039   .0031914     0.25   0.801    -.0054512     .007059
+                 ed_num_meds |  -.0046238   .0070408    -0.66   0.511    -.0184234    .0091759
+                       _cons |  -2.381174    .338421    -7.04   0.000    -3.044467   -1.717881
+----------------------------------------------------------------------------------------------
+
