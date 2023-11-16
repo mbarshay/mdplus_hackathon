@@ -1,0 +1,28 @@
+icd_9_codes,icd_10_codes,dx
+413,I20,angina pectoris 
+410,I21,Acute myocardial infartion
+412,I22,subsequent STEMI
+,I23,Certain complications following STEMI
+411,I24,Other acute ischemic heart
+415,I26,Pulmonary embolism
+531.9,K25,Gastric ulcer
+532.9,K26,Duodenal ulcer
+533.9,K27,Peptic ulcer
+534.9,K28,Gastrojejunal ulcer
+286.7,D68.32,Hemorrhagic disorder due to extrinsic circulating anticoagulants
+459,R58,"Hemorrhage, not elsewhere classified"
+E934.2,T45.515,Adverse effect of anticoagulants
+E947.8,T45.525,Poisoning by direct thrombin inhibitors
+,Y44.2,Adverse effects in the therapeutic use of anticoagulants
+,Y57.0,Complications due to the use of anticoagulant drugs
+432.1,I62.0,Non-traumatic subdural hemorrhage
+578.9,K92.2,"Gastrointestinal hemorrhage, not elsewhere classified"
+784.7,R04.0,Epistaxis
+373.9,H02.405 ,Hemorrhage of eyelid
+434.91,I63,Cerebral Infarction
+530.21,K22.11,Ulcer of the esophagus with bleeding
+438.9,I69.2,Nontraumatic intracranial hemorrhage
+430,I60,Nontraumatic subarrachnoid hemorrhage
+852,S06.5,traumatic subdural hemorrhage
+,S06.6,traumatic subarrachnoid hemorrhage
+,M25.0,Hemarthrosis
