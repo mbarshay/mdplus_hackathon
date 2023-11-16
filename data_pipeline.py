@@ -90,6 +90,19 @@ hosp_dx_desc_path = os.path.join(base_hosp_dir, hosp_dx_desc_filename)
 blood_thinner_drgs_filename = 'drgs_clean_v1_hcfa_only.csv'
 blood_thinner_drgs_path = os.path.join(output_dir, blood_thinner_drgs_filename)
 
+# Prices were sourced from a mix of fileS:
+# https://www.optumcoding.com/upload/docs/2021%20DRG_National%20Average%20Payment%20Table_Update.pdf
+# https://www.cardiovascular.abbott/content/dam/bss/divisionalsites/cv/cv-live-site/hcp/reimbursement/heart-failure/HF-Mechanical-Circulatory-Support-Coding-Guide.pdf
+# https://muschealth.org/-/sm/health/patients-visitors/billing/f/musc-hospital-charges-by-drg-1-1-2020.ashx?la=en
+# https://www.stonybrookmedicine.edu/sites/default/files/average-lab-and-radiology-charges.pdf
+# https://assets.cooperhealth.org/chargemaster/drg.htm
+# https://www.bostonscientific.com/content/dam/bostonscientific/Reimbursement/RhythmManagement/2015/IPPS%20Proposed%20Rule.pdf
+# https://www.denverhealth.org/-/media/images/content-images/patients-visitors/price-transparency-chart.pdf?la=en&hash=c31b507517ed117bf14280c027f4703a3f418d0f
+# https://uvahealth.com/sites/default/files/2018-08/CMS-Transparency-Pricing-Report.pdf
+
+drg_full_price_filename = "drg_cost_to_codes.csv"
+drg_full_price_path = os.path.join(output_dir, drg_full_price_filename)
+
 blood_thinner_icds_of_interest_filename = 'blood_adverse_events_icds.csv'
 blood_thinner_icds_of_interest_path = os.path.join(output_dir, blood_thinner_icds_of_interest_filename)
 
@@ -146,6 +159,8 @@ blood_thinner_icds_of_interest_10 = blood_thinner_icds_of_interest['icd_10_codes
 icu_stays = pd.read_csv(icu_stays_path)
 
 hosp_patients = pd.read_csv(hosp_patients_path)
+
+drg_full_price = pd.read_csv(drg_full_price_path)
 
 # Initial helper method I used to try to generate which medications we wanted to consider for eliquis vs. heparin 
 # results saved down in csvs that were checked into source control 
@@ -285,6 +300,8 @@ for index, row in df_ed_stays.iterrows():
 	current_pt_adm_language = ''
 	current_pt_adm_marital_status = ''
 	current_pt_adm_race = ''
+	current_pt_hos_drg_code = None
+	current_pt_hos_drg_code_price = None
 
 	current_ed_visit = row['stay_id']
 
@@ -409,6 +426,10 @@ for index, row in df_ed_stays.iterrows():
 		total_hours_inpt_post_blood_thinner_icd_primary = 0
 		total_hours_inpt_post_blood_thinner_icd_secondary = 0
 
+		total_drg_price_based_on_icd = 0
+		total_drg_price_based_on_icd_primary = 0
+		total_drg_price_based_on_icd_secondary = 0
+
 		total_visits_inpt_post_blood_thinner_icd = 0 
 		total_visits_inpt_post_blood_thinner_icd_primary = 0
 		total_visits_inpt_post_blood_thinner_icd_secondary = 0
@@ -434,6 +455,16 @@ for index, row in df_ed_stays.iterrows():
 			current_pt_adm_language = current_pt_hosp_admissions_row['language']
 			current_pt_adm_marital_status = current_pt_hosp_admissions_row['marital_status']
 			current_pt_adm_race = current_pt_hosp_admissions_row['race']
+
+			current_pt_hos_drg_row = hosp_drgcodes[(hosp_drgcodes['hadm_id'] == current_pt_ed_hadm_id) & (hosp_drgcodes['drg_type'] == 'HCFA')]
+			if not current_pt_hos_drg_row.empty:
+				current_pt_hos_drg_code = current_pt_hos_drg_row['drg_code'].iloc[0]
+				if current_pt_hos_drg_code is not None:
+					drg_cost_row = drg_full_price[drg_full_price['drg'] == current_pt_hos_drg_code]
+					if not drg_cost_row.empty:
+						current_pt_hos_drg_code_price = drg_cost_row['national_payment_rate'].iloc[0]
+				
+
 
 			if current_pt_adm_race in ['WHITE', 'WHITE - RUSSIAN', 'WHITE - BRAZILIAN','PORTUGUESE', 'WHITE - OTHER EUROPEAN','WHITE - EASTERN EUROPEAN']:
 			    current_pt_adm_race_coded = 0
@@ -471,10 +502,12 @@ for index, row in df_ed_stays.iterrows():
 				matching_prefixes_10 = [prefix for code in current_visit_dxs_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
 
 				if matching_prefixes_9 or matching_prefixes_10:
-				    total_hours_inpt_post_blood_thinner_icd += los_hours
-				    total_visits_inpt_post_blood_thinner_icd += 1 
-
-
+					
+					total_hours_inpt_post_blood_thinner_icd += los_hours
+					total_visits_inpt_post_blood_thinner_icd += 1
+					if current_pt_hos_drg_code_price is not None:
+						total_drg_price_based_on_icd += float(current_pt_hos_drg_code_price.replace("$", "").replace(",", "").strip())
+						# print(current_pt, current_pt_hos_drg_code, current_pt_hos_drg_code_price)
 				current_visit_dxs_primary = ed_df_dx[(ed_df_dx['stay_id'] == current_ed_visit) & (ed_df_dx['seq_num'] == 1)]
 				current_visit_dxs_primary_icd9 = current_visit_dxs_primary[current_visit_dxs_primary['icd_version'] == 9]['icd_code'].tolist()
 				current_visit_dxs_primary_icd10 = current_visit_dxs_primary[current_visit_dxs_primary['icd_version'] == 10]['icd_code'].tolist()
@@ -484,7 +517,10 @@ for index, row in df_ed_stays.iterrows():
 
 				if matching_prefixes_9 or matching_prefixes_10:
 				    total_hours_inpt_post_blood_thinner_icd_primary += los_hours
-				    total_visits_inpt_post_blood_thinner_icd_primary +=1 
+				    total_visits_inpt_post_blood_thinner_icd_primary +=1
+				    if current_pt_hos_drg_code_price is not None:
+		    			total_drg_price_based_on_icd_primary += float(current_pt_hos_drg_code_price.replace("$", "").replace(",", "").strip()) 
+
 
 
 				current_visit_primary_sec_dxs = ed_df_dx[(ed_df_dx['stay_id'] == current_ed_visit) & ((ed_df_dx['seq_num'] == 1) | (ed_df_dx['seq_num'] == 2))]
@@ -497,6 +533,8 @@ for index, row in df_ed_stays.iterrows():
 				if matching_prefixes_9 or matching_prefixes_10:
 				    total_hours_inpt_post_blood_thinner_icd_secondary += los_hours
 				    total_visits_inpt_post_blood_thinner_icd_secondary += 1 
+				    if current_pt_hos_drg_code_price is not None:
+				    	total_drg_price_based_on_icd_secondary += float(current_pt_hos_drg_code_price.replace("$", "").replace(",", "").strip())
 
 
 
@@ -566,42 +604,6 @@ for index, row in df_ed_stays.iterrows():
 						dischtime = datetime.strptime(next_row_hosp_admissions_row['dischtime'].iloc[0], mimic_date_format)
 						los_hours = (dischtime - admittime).total_seconds() / 3600
 
-						# ICD-based LOS [for now brute forcing three different levels of calcs - to-reivist]
-						current_visit_dxs = ed_df_dx[ed_df_dx['stay_id'] == next_row['stay_id']]
-						current_visit_dxs_icd9 = current_visit_dxs[current_visit_dxs['icd_version'] == 9]['icd_code'].tolist()
-						current_visit_dxs_icd10 = current_visit_dxs[current_visit_dxs['icd_version'] == 10]['icd_code'].tolist()
-
-						matching_prefixes_9 = [prefix for code in current_visit_dxs_icd9 for prefix in blood_thinner_icds_of_interest_9 if code.startswith(str(prefix))]
-						matching_prefixes_10 = [prefix for code in current_visit_dxs_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
-
-						if matching_prefixes_9 or matching_prefixes_10:
-						    total_hours_inpt_post_blood_thinner_icd += los_hours
-						    total_visits_inpt_post_blood_thinner_icd += 1
-
-						
-						current_visit_dxs_primary = ed_df_dx[(ed_df_dx['stay_id'] == next_row['stay_id']) & (ed_df_dx['seq_num'] == 1)]
-						current_visit_dxs_primary_icd9 = current_visit_dxs_primary[current_visit_dxs_primary['icd_version'] == 9]['icd_code'].tolist()
-						current_visit_dxs_primary_icd10 = current_visit_dxs_primary[current_visit_dxs_primary['icd_version'] == 10]['icd_code'].tolist()
-
-						matching_prefixes_9 = [prefix for code in current_visit_dxs_primary_icd9 for prefix in blood_thinner_icds_of_interest_9 if code.startswith(str(prefix))]
-						matching_prefixes_10 = [prefix for code in current_visit_dxs_primary_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
-
-						if matching_prefixes_9 or matching_prefixes_10:
-						    total_hours_inpt_post_blood_thinner_icd_primary += los_hours
-						    total_visits_inpt_post_blood_thinner_icd_primary += 1
-
-						
-						current_visit_primary_sec_dxs = ed_df_dx[(ed_df_dx['stay_id'] == next_row['stay_id']) & ((ed_df_dx['seq_num'] == 1) | (ed_df_dx['seq_num'] == 2))]
-						current_visit_primary_sec_dxs_icd9 = current_visit_primary_sec_dxs[current_visit_primary_sec_dxs['icd_version'] == 9]['icd_code'].tolist()
-						current_visit_primary_sec_dxs_icd10 = current_visit_primary_sec_dxs[current_visit_primary_sec_dxs['icd_version'] == 10]['icd_code'].tolist()
-
-						matching_prefixes_9 = [prefix for code in current_visit_primary_sec_dxs_icd9 for prefix in blood_thinner_icds_of_interest_9 if code.startswith(str(prefix))]
-						matching_prefixes_10 = [prefix for code in current_visit_primary_sec_dxs_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
-
-						if matching_prefixes_9 or matching_prefixes_10:
-						    total_hours_inpt_post_blood_thinner_icd_secondary += los_hours
-						    total_visits_inpt_post_blood_thinner_icd_secondary +=1
-
 						# DRG-based LOS and cost assessment
 						relevant_hcfa_drg = hosp_drgcodes[(hosp_drgcodes['hadm_id'] == next_row['hadm_id']) & (hosp_drgcodes['drg_type'] == 'HCFA')]
 						drg_code = None 
@@ -625,6 +627,60 @@ for index, row in df_ed_stays.iterrows():
 							else:
 								print("This should not happen")
 								sys.exit(0)
+
+						next_pt_hos_drg_code_price = None
+						if drg_code is not None:
+							drg_cost_row = drg_full_price[drg_full_price['drg'] == drg_code]
+							if not drg_cost_row.empty:
+								next_pt_hos_drg_code_price = drg_cost_row['national_payment_rate'].iloc[0]
+
+
+
+						# ICD-based LOS [for now brute forcing three different levels of calcs - to-reivist]
+						current_visit_dxs = ed_df_dx[ed_df_dx['stay_id'] == next_row['stay_id']]
+						current_visit_dxs_icd9 = current_visit_dxs[current_visit_dxs['icd_version'] == 9]['icd_code'].tolist()
+						current_visit_dxs_icd10 = current_visit_dxs[current_visit_dxs['icd_version'] == 10]['icd_code'].tolist()
+
+						matching_prefixes_9 = [prefix for code in current_visit_dxs_icd9 for prefix in blood_thinner_icds_of_interest_9 if code.startswith(str(prefix))]
+						matching_prefixes_10 = [prefix for code in current_visit_dxs_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
+
+						if matching_prefixes_9 or matching_prefixes_10:
+						    total_hours_inpt_post_blood_thinner_icd += los_hours
+						    total_visits_inpt_post_blood_thinner_icd += 1
+						    if next_pt_hos_drg_code_price is not None:
+				    			total_drg_price_based_on_icd += float(next_pt_hos_drg_code_price.replace("$", "").replace(",", "").strip())
+			    				# print(next_row['subject_id'], drg_code,next_pt_hos_drg_code_price)
+
+						
+						current_visit_dxs_primary = ed_df_dx[(ed_df_dx['stay_id'] == next_row['stay_id']) & (ed_df_dx['seq_num'] == 1)]
+						current_visit_dxs_primary_icd9 = current_visit_dxs_primary[current_visit_dxs_primary['icd_version'] == 9]['icd_code'].tolist()
+						current_visit_dxs_primary_icd10 = current_visit_dxs_primary[current_visit_dxs_primary['icd_version'] == 10]['icd_code'].tolist()
+
+						matching_prefixes_9 = [prefix for code in current_visit_dxs_primary_icd9 for prefix in blood_thinner_icds_of_interest_9 if code.startswith(str(prefix))]
+						matching_prefixes_10 = [prefix for code in current_visit_dxs_primary_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
+
+						if matching_prefixes_9 or matching_prefixes_10:
+						    total_hours_inpt_post_blood_thinner_icd_primary += los_hours
+						    total_visits_inpt_post_blood_thinner_icd_primary += 1
+						    if next_pt_hos_drg_code_price is not None:
+				    			total_drg_price_based_on_icd_primary += float(next_pt_hos_drg_code_price.replace("$", "").replace(",", "").strip())
+
+
+						
+						current_visit_primary_sec_dxs = ed_df_dx[(ed_df_dx['stay_id'] == next_row['stay_id']) & ((ed_df_dx['seq_num'] == 1) | (ed_df_dx['seq_num'] == 2))]
+						current_visit_primary_sec_dxs_icd9 = current_visit_primary_sec_dxs[current_visit_primary_sec_dxs['icd_version'] == 9]['icd_code'].tolist()
+						current_visit_primary_sec_dxs_icd10 = current_visit_primary_sec_dxs[current_visit_primary_sec_dxs['icd_version'] == 10]['icd_code'].tolist()
+
+						matching_prefixes_9 = [prefix for code in current_visit_primary_sec_dxs_icd9 for prefix in blood_thinner_icds_of_interest_9 if code.startswith(str(prefix))]
+						matching_prefixes_10 = [prefix for code in current_visit_primary_sec_dxs_icd10 for prefix in blood_thinner_icds_of_interest_10 if code.startswith(str(prefix))]
+
+						if matching_prefixes_9 or matching_prefixes_10:
+						    total_hours_inpt_post_blood_thinner_icd_secondary += los_hours
+						    total_visits_inpt_post_blood_thinner_icd_secondary +=1
+						    if next_pt_hos_drg_code_price is not None:
+				    			total_drg_price_based_on_icd_secondary += float(next_pt_hos_drg_code_price.replace("$", "").replace(",", "").strip())
+
+						
 			next_index += 1 
 			next_row = df_ed_stays.loc[next_index]
 
@@ -649,6 +705,8 @@ for index, row in df_ed_stays.iterrows():
 			'hosp_adm_marital_status' : current_pt_adm_marital_status, # Marital status at the time of ED visit as noted by hosp admission
 			'hosp_adm_race' : current_pt_adm_race,  # Race at the time of ED visit as noted by hosp admission
 			'hosp_adm_race_coded' : current_pt_adm_race_coded,  # Race coded at the time of ED visit as noted by hosp admission [see above]
+			'current_pt_hos_drg_code' : current_pt_hos_drg_code, # If patient was admitted during this ED visit, this is the DRG code
+			'current_pt_hos_drg_code_price' : current_pt_hos_drg_code_price, # If pt was admitted during this ED visit, this is the price of the DRG code
 			'death_subseq_ed_encounters' : death_subseq_ed_encounters, # Notes if any subsequent ED visits within the window ended in death (T/F)
 			'num_subseq_ed_encounters' : num_subseq_ed_encounters, # This is total number of subsequent ED visits within the window, no other excl/incl criteria
 			'num_total_visits' : num_total_visits, # This is total number of ED visits all time, with no excl/incl criteria
@@ -686,6 +744,9 @@ for index, row in df_ed_stays.iterrows():
 																					# sums total inpt los for all hos where primary dx meets
 																					# pre-screened ICD criteria and were for pts on blood thinner
 			'total_visits_inpt_post_blood_thinner_icd_secondary' : total_visits_inpt_post_blood_thinner_icd_secondary, # total vist number equivalent of the above
+			'total_drg_price_based_on_icd' : total_drg_price_based_on_icd,
+			'total_drg_price_based_on_icd_primary' : total_drg_price_based_on_icd_primary,
+			'total_drg_price_based_on_icd_secondary' : total_drg_price_based_on_icd_secondary,
 			'not_on_htn_subseq_ed_encounter' : not_on_htn_subseq_ed_encounter, # Indicates if a pt originally presented with HTN and was not on a ACE/ARB
 																				# and then returns for a subsequent visit within 30 days and is still HTN
 																				# and still with no ACE/ARB
@@ -703,7 +764,7 @@ for index, row in df_ed_stays.iterrows():
 			'current_pt_pt_anchor_year' : current_pt_pt_anchor_year, # data from hosp patients table
 			'current_pt_anchor_year_group' : current_pt_anchor_year_group, # data from hosp patients table
 		}
-	# if index > 10000:
+	# if index > 5000:
 	# 	break
 
 
